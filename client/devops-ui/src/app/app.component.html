@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/html">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{{title}}</title>
+    </head>
+
+
+    <body>
+
+        <ngx-spinner
+                bdColor="rgba(0, 0, 0, 0.5)"
+                [template]="spinnerTemplate">
+        </ngx-spinner>
+
+        <div class="layout">
+            <div class="body">
+                <div class="content" [ngClass]="{'main-content' : userAuthenticated, 'login-content': !userAuthenticated}">
+                    <router-outlet></router-outlet>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

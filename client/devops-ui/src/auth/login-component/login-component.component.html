@@ -1,0 +1,190 @@
+<!-- Updated Login Page with Perfect Alignment -->
+<div class="container-fluid login-container d-flex flex-lg-row flex-column p-0">
+
+  <!-- Landing Section -->
+  <div class="col-lg-6 landing-section d-flex flex-column justify-content-center align-items-center">
+    <div class="floating-particles">
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+    </div>
+
+    <!-- Logo & Branding -->
+    <div class="landing-content animate-slideInLeft">
+      <div class="logo-variant">
+        <div class="logo-container">
+          <div class="logo-main floating">
+            <div class="logo-circle">
+              <div class="logo-inner">
+                <div class="infrastructure-icon">⚡</div>
+                <div class="connection-lines">
+                  <div class="line line-1"></div>
+                  <div class="line line-2"></div>
+                  <div class="line line-3"></div>
+                  <div class="line line-4"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="brand-name">{{appName}}</div>
+          <div class="tagline">Where Infrastructure Meets Intelligence</div>
+        </div>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card animate-fadeInUp" style="animation-delay: 0.2s">
+          <div class="feature-icon orange">
+            <i class="fas fa-cogs"></i>
+          </div>
+          <h3 class="feature-title">AI-Powered Automation</h3>
+          <p class="feature-desc">Agents that understand your infrastructure and automate complex workflows</p>
+        </div>
+        <div class="feature-card animate-fadeInUp" style="animation-delay: 0.4s">
+          <div class="feature-icon blue">
+            <i class="fas fa-network-wired"></i>
+          </div>
+          <h3 class="feature-title">Multi-Service Integration</h3>
+          <p class="feature-desc">Integrate Redis, RDS, ECS, Lambda, and AI in one unified platform</p>
+        </div>
+        <div class="feature-card animate-fadeInUp" style="animation-delay: 0.6s">
+          <div class="feature-icon purple">
+            <i class="fas fa-chart-line"></i>
+          </div>
+          <h3 class="feature-title">Real-time Analytics</h3>
+          <p class="feature-desc">Get logs and metrics from LGTM stack with Grafana dashboards</p>
+        </div>
+        <div class="feature-card animate-fadeInUp" style="animation-delay: 0.8s">
+          <div class="feature-icon green">
+            <i class="fas fa-shield-alt"></i>
+          </div>
+          <h3 class="feature-title">Enterprise Security</h3>
+          <p class="feature-desc">Token-based login, Google SSO, and Cognito integration with rate limiting</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6 login-section d-flex justify-content-center align-items-center">
+    <div class="login-card-container" [class.flipped]="!isLoginMode">
+      <!-- Front Face - Login -->
+      <div class="login-card login-face login-front">
+        <div class="login-header">
+          <h2 class="login-title">Welcome Back</h2>
+          <p class="login-subtitle">Sign in to access your {{ appName }} Dashboard</p>
+        </div>
+
+        <!-- Login Form -->
+        <form (ngSubmit)="onLogin()" [formGroup]="loginForm">
+          <div class="form-group">
+            <label for="email" class="form-label">Email Address</label>
+            <div class="input-group">
+              <i class="fas fa-envelope input-icon"></i>
+              <input type="email" class="form-control has-icon" id="email" formControlName="email"
+                placeholder="Enter your email" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="password" class="form-label">Password</label>
+            <div class="input-group">
+              <i class="fas fa-lock input-icon"></i>
+              <input [type]="showPassword ? 'text' : 'password'" class="form-control has-icon" id="password"
+                formControlName="password" placeholder="Enter your password" required>
+              <button type="button" class="btn btn-link position-absolute end-0 top-50 translate-middle-y pe-3"
+                (click)="togglePassword()" style="z-index: 3; border: none; color: var(--text-muted);">
+                <i [class]="showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-login" [disabled]="loginForm.invalid || isLoading">
+            <span *ngIf="isLoading" class="spinner-border spinner-border-sm me-2"></span>
+            {{ isLoading ? 'Signing In...' : 'Sign In' }}
+          </button>
+
+          <div class="text-center my-3 text-secondary">or</div>
+
+          <button class="btn btn-google w-100 py-2 text-white" role="button" (click)="redirectToGoogleAuth('login')">
+            <img width="20px" style="margin-bottom:3px; margin-right:5px" alt="Google sign-in" src="/google.png" />
+            Sign in with Google
+          </button>
+        </form>
+
+        <div class="login-footer text-center mt-3">
+          <a href="#" class="signup-link" (click)="toggleMode()">
+            Don't have an account? Sign Up
+          </a>
+        </div>
+      </div>
+
+      <!-- Back Face - Sign Up -->
+      <div class="login-card login-face login-back">
+        <div class="login-header">
+          <h2 class="login-title">Join {{appName}}</h2>
+          <p class="login-subtitle">Create an account to get started</p>
+        </div>
+
+        <form (ngSubmit)="onSignup()" [formGroup]="signupForm">
+          <div class="form-group">
+            <label for="firstName" class="form-label">First Name</label>
+            <input type="text" class="form-control" id="firstName" formControlName="firstName" placeholder="First Name"
+              required>
+
+            <div class="error-message small mt-1" *ngIf="firstName?.invalid && !firstName?.untouched">
+              <div *ngIf="firstName?.hasError('required')">FirstName field is mandatory</div>
+              <div *ngIf="firstName?.hasError('pattern')">FirstName should be only characters</div>
+              <div *ngIf="firstName?.hasError('maxlength')">FirstName should be below 35 characters</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="lastName" class="form-label">Last Name</label>
+            <input type="text" class="form-control" id="lastName" formControlName="lastName" placeholder="Last Name"
+              required>
+            <div class="error-message small mt-1" *ngIf="lastName?.invalid && !lastName?.untouched">
+              <div *ngIf="lastName?.hasError('required')">LastName field is mandatory</div>
+              <div *ngIf="lastName?.hasError('pattern')">LastName should be only characters</div>
+              <div *ngIf="lastName?.hasError('maxlength')">LastName should be below 35 characters
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="signupEmail" class="form-label">Email Address</label>
+            <input type="email" class="form-control" id="signupEmail" formControlName="email" placeholder="Email"
+              required>
+            <div class="error-message" *ngIf="email?.invalid && !email?.untouched">
+              <div *ngIf="email?.hasError('required')">Email field is mandatory</div>
+              <div *ngIf="email?.hasError('email')">Email is invalid. Please provide a valid email</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="signupPassword" class="form-label">Password</label>
+            <input type="password" class="form-control" id="signupPassword" formControlName="password"
+              placeholder="Password" required>
+          </div>
+
+          <button type="submit" class="btn btn-login" [disabled]="signupForm.invalid || isLoading">
+            <span *ngIf="isLoading" class="spinner-border spinner-border-sm me-2"></span>
+            {{ isLoading ? 'Signing Up...' : 'Sign Up' }}
+          </button>
+
+          <div class="text-center my-3 text-secondary">or</div>
+
+          <button class="btn btn-google w-100 py-2 text-white" role="button" (click)="redirectToGoogleAuth('signup')">
+            <img width="20px" style="margin-bottom:3px; margin-right:5px" alt="Google sign-in" src="/google.png" />
+            Sign up with Google
+          </button>
+        </form>
+
+        <div class="login-footer text-center mt-3">
+          <a href="#" class="forgot-password" (click)="toggleMode()">
+            Already have an account? Sign In
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
