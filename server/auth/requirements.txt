@@ -1,0 +1,11 @@
+fastapi
+fastapi-sso
+uvicorn
+sqlalchemy
+pymysql
+pydantic
+pyjwt
+boto3
+passlib[bcrypt]
+python-dotenv
+requests

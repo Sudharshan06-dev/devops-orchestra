@@ -1,16 +1,17 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
+
 import {
   APP_NAME,
-  AUTH_ROUTE,
-  AUTH_SSO_PATH
+  API_ROUTE
 } from "../../environment";
 import { SKIP_AUTH_TRUE } from '../../interceptors/auth.interceptor';
 import { RequestService } from '../../services/request.service';
 import { ToasterHelper } from '../../services/toast.service';
 import { LocalStorageHelper } from '../../services/local-storage.service';
+import { jwtDecode } from 'jwt-decode';
 
 @Component({
   selector: 'app-login-component',
@@ -31,12 +32,31 @@ export class LoginComponentComponent implements OnInit {
   constructor(
     private fb: FormBuilder,
     private router: Router,
+    private route: ActivatedRoute,
     private request: RequestService,
     private localStorage: LocalStorageHelper,
     private toastService: ToasterHelper
   ) { }
 
   ngOnInit(): void {
+
+    this.route.queryParams.subscribe(params => {
+
+      if (params['token']) {
+
+        const decoded: any = jwtDecode(params['token']);
+        const userDetails = {
+          email: decoded.sub,
+          firstname: decoded.firstname,
+          lastname: decoded.lastname
+        };
+        this.localStorage.storeItem('access_token', params['token'])
+        this.localStorage.storeItem('user_details', userDetails)
+        this.router.navigate(['/dashboard']);
+      }
+
+    });
+
     this.initializeForm();
   }
 
@@ -48,8 +68,8 @@ export class LoginComponentComponent implements OnInit {
     });
 
     this.signupForm = this.fb.group({
-      firstName: [null, [Validators.required, Validators.pattern('[a-zA-Z]+'), Validators.maxLength(35)]],
-      lastName: [null, [Validators.required, Validators.pattern('[a-zA-Z]+'), Validators.maxLength(35)]],
+      firstname: [null, [Validators.required, Validators.pattern('[a-zA-Z]+'), Validators.maxLength(35)]],
+      lastname: [null, [Validators.required, Validators.pattern('[a-zA-Z]+'), Validators.maxLength(35)]],
       email: [null, [Validators.required, Validators.email]],
       password: [null, [Validators.required, Validators.minLength(8), Validators.maxLength(15)]]
     });
@@ -58,10 +78,7 @@ export class LoginComponentComponent implements OnInit {
 
   public onSignup() {
 
-    console.log(this.signupForm.getRawValue())
-    return
-
-    this.request.post(AUTH_ROUTE + '/register-user', this.signupForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
+    this.request.post(API_ROUTE + '/register-user', this.signupForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
       next: (data: any) => {
         // Handle successful response here
         this.toastService.success(data);
@@ -77,19 +94,13 @@ export class LoginComponentComponent implements OnInit {
 
   public onLogin() {
 
-    this.request.post(AUTH_ROUTE + '/login', this.loginForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
+    this.request.post(API_ROUTE + '/token', this.loginForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
       next: (data: any) => {
-
-        //Route to single sign on if google id is found
-        if (data?.google_id) {
-          this.redirectToGoogleAuth('login');
-          return;
-        }
 
         // Handle successful response here
         this.localStorage.storeItem('access_token', data?.access_token)
         this.localStorage.storeItem('user_details', data?.user_details)
-        this.router.navigate(['/main-dashboard']);
+        this.router.navigate(['/dashboard']);
       },
 
       error: (err: any) => {
@@ -99,8 +110,8 @@ export class LoginComponentComponent implements OnInit {
     });
   }
 
-  public redirectToGoogleAuth(type: string) {
-    window.location.href = AUTH_SSO_PATH + '/redirect?type=' + type;
+  public redirectToGoogleAuth() {
+    window.location.href = API_ROUTE + '/auth/google/login';
   }
 
   toggleMode(): void {
@@ -111,12 +122,12 @@ export class LoginComponentComponent implements OnInit {
     this.showPassword = !this.showPassword;
   }
 
-  get firstName() {
-    return this.signupForm.get('firstName')
+  get firstname() {
+    return this.signupForm.get('firstname')
   }
 
-  get lastName() {
-    return this.signupForm.get('lastName')
+  get lastname() {
+    return this.signupForm.get('lastname')
   }
 
   get email() {
