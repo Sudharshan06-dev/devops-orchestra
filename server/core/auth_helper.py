@@ -5,12 +5,12 @@ from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
-from models.UserModel import UserModel
+from auth.models.UserModel import UserModel
 from core.context_vars import user_id_ctx
 from typing import Optional
 from dotenv import load_dotenv
 from config.database import get_db_connection
-from schemas.user_schema import UserResponse
+from auth.schemas.user_schema import UserResponse
 import jwt
 import os
 

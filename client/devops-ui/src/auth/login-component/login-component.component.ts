@@ -5,18 +5,19 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import {
   APP_NAME,
-  API_ROUTE
+  AUTH_API_ROUTE
 } from "../../environment";
 import { SKIP_AUTH_TRUE } from '../../interceptors/auth.interceptor';
 import { RequestService } from '../../services/request.service';
 import { ToasterHelper } from '../../services/toast.service';
 import { LocalStorageHelper } from '../../services/local-storage.service';
 import { jwtDecode } from 'jwt-decode';
+import { LogoComponent } from '../../shared/logo/logo.component';
 
 @Component({
   selector: 'app-login-component',
   standalone: true,
-  imports: [ReactiveFormsModule, CommonModule],
+  imports: [ReactiveFormsModule, CommonModule, LogoComponent],
   templateUrl: './login-component.component.html',
   styleUrl: './login-component.component.css'
 })
@@ -78,7 +79,7 @@ export class LoginComponentComponent implements OnInit {
 
   public onSignup() {
 
-    this.request.post(API_ROUTE + '/register-user', this.signupForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
+    this.request.post(AUTH_API_ROUTE + '/register-user', this.signupForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
       next: (data: any) => {
         // Handle successful response here
         this.toastService.success(data);
@@ -94,7 +95,7 @@ export class LoginComponentComponent implements OnInit {
 
   public onLogin() {
 
-    this.request.post(API_ROUTE + '/token', this.loginForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
+    this.request.post(AUTH_API_ROUTE + '/token', this.loginForm.getRawValue(), [SKIP_AUTH_TRUE]).subscribe({
       next: (data: any) => {
 
         // Handle successful response here
@@ -111,7 +112,7 @@ export class LoginComponentComponent implements OnInit {
   }
 
   public redirectToGoogleAuth() {
-    window.location.href = API_ROUTE + '/auth/google/login';
+    window.location.href = AUTH_API_ROUTE + '/google/login';
   }
 
   toggleMode(): void {

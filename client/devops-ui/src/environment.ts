@@ -10,6 +10,8 @@ export const AUTH_SSO_PATH: string = 'http://localhost:8000/';
 
 export const API_ROUTE: string = 'http://localhost:8000';
 
+export const AUTH_API_ROUTE: string = 'http://localhost:8000/auth';
+
 export const TOAST_CONFIGURATION = {
     timeOut: 2500,
     positionClass: 'toast-top-full-width',

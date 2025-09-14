@@ -1,0 +1,37 @@
+<ng-container *ngIf="showAppName">
+    <div class="logo-variant">
+        <div class="logo-container">
+            <div class="logo-main floating">
+                <div class="logo-circle">
+                    <div class="logo-inner">
+                        <div class="infrastructure-icon">⚡</div>
+                        <div class="connection-lines">
+                            <div class="line line-1"></div>
+                            <div class="line line-2"></div>
+                            <div class="line line-3"></div>
+                            <div class="line line-4"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="brand-name">{{appName}}</div>
+            <div class="tagline">Where Infrastructure Meets Intelligence</div>
+        </div>
+    </div>
+</ng-container>
+
+<ng-container *ngIf="!showAppName">
+    <div class="logo-main floating">
+        <div class="logo-circle">
+            <div class="logo-inner">
+                <div class="infrastructure-icon">⚡</div>
+                <div class="connection-lines">
+                    <div class="line line-1"></div>
+                    <div class="line line-2"></div>
+                    <div class="line line-3"></div>
+                    <div class="line line-4"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</ng-container>

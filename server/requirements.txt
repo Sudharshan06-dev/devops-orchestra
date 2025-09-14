@@ -9,3 +9,5 @@ boto3
 passlib[bcrypt]
 python-dotenv
 requests
+mcp-server
+ollama

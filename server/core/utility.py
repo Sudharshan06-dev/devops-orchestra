@@ -1,7 +1,7 @@
 #HELPERS FUNCTION
 from fastapi.responses import JSONResponse
-from schemas.user_schema import DefaultResponse
 from core.messages import SUCCESS, ERROR
+from schemas.shared import DefaultResponse
 
 
 ##Common Utility Function for Responses ##

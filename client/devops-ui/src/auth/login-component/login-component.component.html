@@ -13,25 +13,7 @@
 
     <!-- Logo & Branding -->
     <div class="landing-content animate-slideInLeft">
-      <div class="logo-variant">
-        <div class="logo-container">
-          <div class="logo-main floating">
-            <div class="logo-circle">
-              <div class="logo-inner">
-                <div class="infrastructure-icon">⚡</div>
-                <div class="connection-lines">
-                  <div class="line line-1"></div>
-                  <div class="line line-2"></div>
-                  <div class="line line-3"></div>
-                  <div class="line line-4"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="brand-name">{{appName}}</div>
-          <div class="tagline">Where Infrastructure Meets Intelligence</div>
-        </div>
-      </div>
+      <app-logo [showAppName] = "true"></app-logo>
 
       <div class="features-grid">
         <div class="feature-card animate-fadeInUp" style="animation-delay: 0.2s">

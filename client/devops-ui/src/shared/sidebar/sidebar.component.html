@@ -1,0 +1,42 @@
+<div class="sidebar">
+  <!-- Logo -->
+  <app-logo></app-logo>
+
+  <!-- Navigation Links -->
+  <nav class="nav-links">
+  <a 
+    routerLink="/dashboard/chat"
+    routerLinkActive="active"
+    [routerLinkActiveOptions]="{ exact: true }">
+    <i class="fas fa-comments"></i>
+    <span>Chat</span>
+  </a>
+
+  <a 
+    routerLink="/dashboard/log-dashboard"
+    routerLinkActive="active"
+    [routerLinkActiveOptions]="{ exact: true }">
+    <i class="fas fa-chart-bar"></i>
+    <span>Log Dashboard</span>
+  </a>
+</nav>
+
+<!-- Profile -->
+<div class="profile-section">
+  <a 
+    routerLink="/dashboard/profile"
+    routerLinkActive="active"
+    [routerLinkActiveOptions]="{ exact: true }">
+    <i class="fas fa-user-circle"></i>
+    <span>Profile</span>
+  </a>
+</div>
+
+<div class="profile-section">
+  <a (click)="logout()">
+    <i class="fas fa-user-circle"></i>
+    <span>Logout</span>
+  </a>
+</div>
+
+</div>

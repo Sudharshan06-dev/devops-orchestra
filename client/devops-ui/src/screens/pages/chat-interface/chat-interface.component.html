@@ -1,0 +1,161 @@
+<div class="chat-wrapper">
+  <!-- Chat Header with Glass Effect -->
+  <div class="chat-header">
+    <div class="header-content">
+      <div class="chat-title">
+        <div class="title-text">
+          <span class="main-title">Aivina</span>
+          <span class="sub-title">Your Infrastructure Assistant</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-status" [class.online]="isOnline">
+          <div class="status-dot"></div>
+          <span>{{ isOnline ? 'Online' : 'Offline' }}</span>
+        </button>
+        <button class="btn-new-chat" (click)="startNewChat()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14m-7-7h14"/>
+          </svg>
+          New Chat
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat History with Modern Pills -->
+  <div class="chat-history" *ngIf="chatSessions.length > 0">
+    <div class="history-container">
+      <div 
+        *ngFor="let session of chatSessions; trackBy: trackBySessionId" 
+        (click)="selectSession(session.id)" 
+        [class.active]="session.id === activeSessionId"
+        class="chat-history-item">
+        <div class="session-title">{{ session.title }}</div>
+        <div class="session-preview" *ngIf="session.messages.length > 0">
+          {{ getLastMessagePreview(session) }}
+        </div>
+        <button class="btn-delete-session" (click)="deleteSession(session.id, $event)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat Messages with Advanced Styling -->
+  <div class="chat-messages" #scrollContainer>
+    <div class="messages-container">
+      <!-- Welcome Message -->
+      <div class="welcome-message" *ngIf="currentMessages.length === 0">
+        <div class="welcome-icon">✨</div>
+        <h3>Welcome to Aivina!</h3>
+        <p>I'm here to help you with your infrastructure needs. Ask me anything about:</p>
+        <div class="suggestion-chips">
+          <button 
+            *ngFor="let suggestion of suggestions" 
+            class="suggestion-chip"
+            (click)="applySuggestion(suggestion)">
+            {{ suggestion }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div *ngFor="let message of currentMessages; let i = index" 
+           class="message-wrapper">
+        <div [ngClass]="{'user-message': message.role === 'user', 'ai-message': message.role === 'assistant'}">
+          <div class="message-avatar" *ngIf="message.role === 'assistant'">
+            <div class="ai-avatar">🤖</div>
+          </div>
+          <div class="message-content">
+            <div class="message-text" [innerHTML]="formatMessage(message.content)"></div>
+            <div class="message-time">{{ getMessageTime(i) }}</div>
+          </div>
+          <div class="message-actions" *ngIf="message.role === 'assistant'">
+            <button class="action-btn" (click)="copyMessage(message.content)" title="Copy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+              </svg>
+            </button>
+            <button class="action-btn" (click)="regenerateResponse(i)" title="Regenerate">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4a9 9 0 01-14.85 8.36L23 14"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing Indicator -->
+      <div class="typing-indicator" *ngIf="isTyping">
+        <div class="ai-avatar">🤖</div>
+        <div class="typing-animation">
+          <div class="typing-dots">
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+          </div>
+          <span class="typing-text">Aivina is thinking...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Enhanced Input Area -->
+  <div class="chat-input">
+    <div class="input-container">
+      <button class="btn-attach" title="Attach File">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21.44 11.05L12.25 20.24a6.001 6.001 0 01-8.49-8.49L12.7 2.81a4 4 0 015.66 5.66L9.42 17.41a2 2 0 01-2.83-2.83L15.53 5.64"/>
+        </svg>
+      </button>
+      
+      <div class="textarea-wrapper">
+        <textarea 
+          [(ngModel)]="userInput" 
+          placeholder="Ask anything about your infrastructure..."
+          (keydown)="handleKeyDown($event)"
+          (input)="onInputChange()"
+          [rows]="textareaRows"
+          #messageInput></textarea>
+        
+        <div class="input-suggestions" *ngIf="showSuggestions && inputSuggestions.length > 0">
+          <div 
+            *ngFor="let suggestion of inputSuggestions"
+            class="suggestion-item"
+            (click)="applySuggestion(suggestion)">
+            {{ suggestion }}
+          </div>
+        </div>
+      </div>
+
+      <div class="send-actions">
+        <button 
+          class="btn-send" 
+          (click)="sendMessage()"
+          [disabled]="!canSend()"
+          [class.can-send]="canSend()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22,2 15,22 11,13 2,9"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Character Count and Status -->
+    <div class="input-footer">
+      <div class="char-count" [class.warning]="userInput.length > 1000">
+        {{ userInput.length }}/2000
+      </div>
+      <div class="input-status" *ngIf="inputStatus">
+        {{ inputStatus }}
+      </div>
+    </div>
+  </div>
+</div>
