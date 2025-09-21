@@ -67,7 +67,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db_connect
     db.refresh(update_access_token)
 
     # Redirect to frontend with token
-    response = RedirectResponse(url=f"http://localhost:4200/dashboard?token={access_token}")
+    response = RedirectResponse(url=f"http://localhost:4200/login?token={access_token}")
     return response
 
 
@@ -142,7 +142,7 @@ async def login_user(user_credentials: UserLoginRequest, db: Session = Depends(g
 
         return UserLoginResponse(
             access_token=access_token,
-            user=UserResponse.model_validate(user_data)
+            user_details=UserResponse.model_validate(user_data)
         )
         
     except Exception:

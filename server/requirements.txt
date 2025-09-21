@@ -10,4 +10,5 @@ passlib[bcrypt]
 python-dotenv
 requests
 mcp-server
+mcp-tools
 ollama

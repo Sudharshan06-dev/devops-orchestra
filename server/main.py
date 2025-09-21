@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from auth.user_auth import auth_router
+from chat.user_chat import chat_router
 from core.user_middleware import user_middleware
 from config.database import engine, get_db_connection, base
 import logging
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 accepted_origins = ["http://localhost:4200", "http://localhost:8000"]
 
 #Application routers
-routers = [auth_router]
+routers = [auth_router, chat_router]
 
 #Add the custom middleware and the cors
 app.add_middleware(BaseHTTPMiddleware, dispatch=user_middleware)

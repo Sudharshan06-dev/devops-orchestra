@@ -55,7 +55,6 @@ export class LoginComponentComponent implements OnInit {
         this.localStorage.storeItem('user_details', userDetails)
         this.router.navigate(['/dashboard']);
       }
-
     });
 
     this.initializeForm();

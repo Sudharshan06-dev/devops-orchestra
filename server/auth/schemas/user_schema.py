@@ -31,4 +31,4 @@ class UserResponse(BaseModel):
 
 class UserLoginResponse(BaseModel):
     access_token: str
-    user: UserResponse
+    user_details: UserResponse

@@ -24,18 +24,18 @@
   </div>
 
   <!-- Chat History with Modern Pills -->
-  <div class="chat-history" *ngIf="chatSessions.length > 0">
+  <div class="chat-history" *ngIf="pastChatHistory.length > 0">
     <div class="history-container">
       <div 
-        *ngFor="let session of chatSessions; trackBy: trackBySessionId" 
-        (click)="selectSession(session.id)" 
-        [class.active]="session.id === activeSessionId"
+        *ngFor="let currentMessage of pastChatHistory;" 
+        (click)="loadChatHistory(currentMessage.chat_id)" 
+        [class.active]="currentMessage.chat_id === chatId"
         class="chat-history-item">
-        <div class="session-title">{{ session.title }}</div>
-        <div class="session-preview" *ngIf="session.messages.length > 0">
-          {{ getLastMessagePreview(session) }}
+        <div class="session-title">{{ currentMessage.chat_id }}</div>
+        <div class="session-preview" *ngIf="currentMessage.title.length > 0">
+          {{ getLastMessagePreview(currentMessage.title) }}
         </div>
-        <button class="btn-delete-session" (click)="deleteSession(session.id, $event)">
+        <button class="btn-delete-session" (click)="deleteChatHistory(currentMessage.chat_id)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>

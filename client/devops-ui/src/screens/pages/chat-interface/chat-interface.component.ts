@@ -1,18 +1,31 @@
 import { CommonModule } from '@angular/common';
 import { Component, ViewChild, ElementRef, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RequestService } from '../../../services/request.service';
+import { CHAT_API_ROUTE } from '../../../environment';
+import { LocalStorageHelper } from '../../../services/local-storage.service';
+import { ToasterHelper } from '../../../services/toast.service';
+import { SKIP_SPINNER_TRUE } from '../../../interceptors/spinner.interceptor';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  id: string;
+  title?: string;
+  chat_id?: string;
+  message_id?: string;
 }
 
-interface ChatSession {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
+interface ChatMessagePreview {
+  chat_id: string,
+  title: string,
+  timestamp: Date
+}
+
+interface ChatMessageRequest {
+  content: string;
+  timestamp: Date;
+  chat_id?: string;
 }
 
 @Component({
@@ -22,20 +35,20 @@ interface ChatSession {
   templateUrl: './chat-interface.component.html',
   styleUrl: './chat-interface.component.css'
 })
-export class ChatInterfaceComponent implements OnInit {
 
-  // Core properties
-  public chatSessions: ChatSession[] = [];
-  public activeSessionId: string = '';
+export class ChatInterfaceComponent implements OnInit {
   public currentMessages: ChatMessage[] = [];
+  public pastChatHistory: ChatMessagePreview[] = [];
   public userInput: string = '';
-  public isOnline: boolean = true;
   public isTyping: boolean = false;
   public textareaRows: number = 1;
   public showSuggestions: boolean = false;
   public inputStatus: string = '';
+  public chatId: string = '';
+  public userId: number = 0;
+  public chatTitle: string = 'New Chat';
+  public isOnline: boolean = true;
 
-  // Suggestions
   public suggestions: string[] = [
     'Analyze my AWS infrastructure',
     'Check ECS service health',
@@ -45,145 +58,142 @@ export class ChatInterfaceComponent implements OnInit {
     'Security audit checklist'
   ];
 
-  public inputSuggestions: string[] = [
-    'Why is my ECS service failing?',
-    'How to optimize Lambda costs?',
-    'Check CloudWatch logs for errors',
-    'Setup auto-scaling for my app'
-  ];
+  public inputSuggestions: string[] = [];
 
   @ViewChild('scrollContainer') scrollContainer!: ElementRef;
   @ViewChild('messageInput') messageInput!: ElementRef;
 
-  constructor() {}
+  constructor(
+    private requestService: RequestService,
+    private localStorage: LocalStorageHelper,
+    private toasterService: ToasterHelper
+  ) {}
 
   ngOnInit(): void {
-    this.initializeMockData();
-    this.selectSession(this.chatSessions[0].id);
+    
+    this.loadAllChatHistory();
+    this.userId =  this.localStorage.getItem('user_details')?.user_id;
   }
 
-  // Initialize mock data
-  private initializeMockData(): void {
-    this.chatSessions = [
-      {
-        id: 'session-1',
-        title: 'AWS Infrastructure Analysis',
-        messages: [
-          {
-            id: '1',
-            role: 'user',
-            content: 'Can you analyze my AWS infrastructure setup?',
-            timestamp: new Date()
-          },
-          {
-            id: '2',
-            role: 'assistant',
-            content: 'I\'d be happy to help analyze your AWS infrastructure! To provide the most accurate analysis, I\'ll need some information about your current setup.',
-            timestamp: new Date()
-          }
-        ]
+  loadAllChatHistory(): void {
+
+    this.requestService.get(`${CHAT_API_ROUTE}/all`).subscribe({
+      next: (data: ChatMessagePreview[] | any) => {
+        this.pastChatHistory = data || [];
       },
-      {
-        id: 'session-2',
-        title: 'ECS 502 Gateway Timeout',
-        messages: [
-          {
-            id: '3',
-            role: 'user',
-            content: 'I keep getting 502 Gateway Timeout errors on my ECS service.',
-            timestamp: new Date()
-          },
-          {
-            id: '4',
-            role: 'assistant',
-            content: 'A 502 Gateway Timeout in ECS typically indicates issues between your load balancer and containers. Let me help you troubleshoot this.',
-            timestamp: new Date()
-          }
-        ]
-      },
-      {
-        id: 'session-3',
-        title: 'Terraform Configuration',
-        messages: [
-          {
-            id: '5',
-            role: 'user',
-            content: 'My Terraform deployment is failing. What should I check?',
-            timestamp: new Date()
-          }
-        ]
+      error: (err: any) => {
+        this.toasterService.error(err?.error);
       }
-    ];
+    });
   }
 
-  // Session management
-  startNewChat(): void {
-    const newId = 'chat-' + Date.now();
-    const newSession: ChatSession = {
-      id: newId,
-      title: 'New Chat',
-      messages: []
-    };
-    this.chatSessions.unshift(newSession);
-    this.selectSession(newId);
+  loadChatHistory(chat_id: string | undefined): void {
+
+    if (!chat_id) return;
+
+    this.chatId = chat_id;
+
+    this.requestService.get(`${CHAT_API_ROUTE}/history/chat_id=${chat_id}`).subscribe({
+      next: (data: ChatMessage[] | any) => {
+        this.currentMessages = data || [];
+        setTimeout(() => this.scrollToBottom(), 0);
+      },
+      error: (err: any) => {
+        this.toasterService.error(err?.error);
+      }
+    });
   }
 
-  selectSession(sessionId: string): void {
-    const session = this.chatSessions.find(s => s.id === sessionId);
-    if (session) {
-      this.currentMessages = session.messages;
-      this.activeSessionId = sessionId;
-      setTimeout(() => this.scrollToBottom(), 0);
+  deleteChatHistory(chat_id: string | undefined): void {
+
+    if(!chat_id) {
+      this.pastChatHistory.shift()
+      return
     }
+
+    this.requestService.get(`${CHAT_API_ROUTE}/delete/chat_id=${chat_id}`).subscribe({
+      next: (data : any) => {
+        this.toasterService.success(data);
+        this.loadAllChatHistory();
+        if (this.chatId === chat_id) {
+          this.currentMessages = [];
+          this.chatId = '';
+        }
+      },
+      error: (err: any) => {
+        this.toasterService.error(err?.error);
+      }
+    });
   }
 
-  deleteSession(sessionId: string, event: Event): void {
-    event.stopPropagation();
-    const index = this.chatSessions.findIndex(s => s.id === sessionId);
-    if (index > -1) {
-      this.chatSessions.splice(index, 1);
-    }
-  }
-
-  // Message handling
   sendMessage(): void {
     if (!this.canSend()) return;
 
-    const session = this.chatSessions.find(s => s.id === this.activeSessionId);
-    if (!session) return;
+    const user_id = this.localStorage.getItem('user_details')?.user_id;
+    const timestamp = new Date();
 
     const userMessage: ChatMessage = {
-      id: 'msg-' + Date.now(),
       role: 'user',
       content: this.userInput.trim(),
-      timestamp: new Date()
+      title: this.chatTitle,
+      timestamp,
+      chat_id: this.chatId
     };
 
-    session.messages.push(userMessage);
+    this.currentMessages.push(userMessage);
+
+    const requestPayload: ChatMessageRequest = {
+      content: userMessage.content,
+      timestamp,
+      chat_id: this.chatId || ''
+    };
+
     this.userInput = '';
-
-    // Simulate AI response
     this.isTyping = true;
-    setTimeout(() => {
-      const aiMessage: ChatMessage = {
-        id: 'ai-' + Date.now(),
-        role: 'assistant',
-        content: `Thank you for your message: "${userMessage.content}". I'm here to help with your infrastructure needs!`,
-        timestamp: new Date()
-      };
-      session.messages.push(aiMessage);
-      this.isTyping = false;
-      this.scrollToBottom();
-    }, 1500);
-
     this.scrollToBottom();
+
+    this.requestService.post(`${CHAT_API_ROUTE}/ask`, {...requestPayload, role: 'user'}, [SKIP_SPINNER_TRUE]).subscribe({
+      next: (response: any) => {
+        
+        const assistantMessage: ChatMessage = {
+          role: 'assistant',
+          content: response?.content || '...',
+          timestamp: new Date(),
+          chat_id: response?.chat_id,
+          message_id: response?.message_id
+        };
+
+        if (!this.chatId && response?.chat_id) {
+          this.chatId = response.chat_id;
+          this.loadAllChatHistory();
+        }
+
+        this.currentMessages.push(assistantMessage);
+
+        this.scrollToBottom();
+        this.isTyping = false;
+      },
+      error: (err: any) => {
+        this.toasterService.error(err?.error);
+        this.isTyping = false;
+      }
+    });
+  }
+
+  startNewChat(): void {
+    this.currentMessages = [];
+    const newChat : ChatMessagePreview = {
+      timestamp: new Date(),
+      title: 'New Chat',
+      chat_id: ''
+    }
+    this.pastChatHistory.unshift(newChat)
   }
 
   canSend(): boolean {
     return this.userInput.trim().length > 0 && !this.isTyping;
   }
 
-  // Input handling
   handleKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -196,14 +206,12 @@ export class ChatInterfaceComponent implements OnInit {
     this.textareaRows = Math.min(Math.max(lines, 1), 5);
   }
 
-  applySuggestion(suggestion: string): void {
-    this.userInput = suggestion;
-    this.showSuggestions = false;
-  }
-
-  // Utility methods
-  trackBySessionId(index: number, session: ChatSession): string {
-    return session.id;
+  scrollToBottom(): void {
+    if (this.scrollContainer) {
+      setTimeout(() => {
+        this.scrollContainer.nativeElement.scrollTop = this.scrollContainer.nativeElement.scrollHeight;
+      }, 0);
+    }
   }
 
   formatMessage(content: string): string {
@@ -212,37 +220,30 @@ export class ChatInterfaceComponent implements OnInit {
 
   getMessageTime(index: number): string {
     const message = this.currentMessages[index];
-    if (message && message.timestamp) {
-      return message.timestamp.toLocaleTimeString([], { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      });
-    }
-    return '';
+    return message?.timestamp
+      ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
   }
 
-  getLastMessagePreview(session: ChatSession): string {
-    if (session.messages.length === 0) return 'No messages yet';
-    const lastMessage = session.messages[session.messages.length - 1];
-    return lastMessage.content.length > 50 ? 
-      lastMessage.content.substring(0, 50) + '...' : 
-      lastMessage.content;
-  }
-
-  scrollToBottom(): void {
-    if (this.scrollContainer) {
-      this.scrollContainer.nativeElement.scrollTop = this.scrollContainer.nativeElement.scrollHeight;
-    }
-  }
-
-  // Message actions (simple implementations)
   copyMessage(content: string): void {
+    navigator.clipboard.writeText(content);
     this.inputStatus = 'Message copied!';
-    setTimeout(() => this.inputStatus = '', 2000);
+    setTimeout(() => (this.inputStatus = ''), 2000);
   }
 
-  regenerateResponse(messageIndex: number): void {
+  regenerateResponse(index: number): void {
     this.inputStatus = 'Regenerating response...';
-    setTimeout(() => this.inputStatus = '', 2000);
+    setTimeout(() => (this.inputStatus = ''), 2000);
+  }
+
+  applySuggestion(suggestion: string): void {
+    this.userInput = suggestion;
+    this.showSuggestions = false;
+  }
+
+  getLastMessagePreview(content: string): string {
+    if (!content) return 'No messages yet';
+    const preview = content.replace(/<[^>]*>/g, '');
+    return preview.length > 50 ? preview.substring(0, 50) + '...' : preview;
   }
 }
