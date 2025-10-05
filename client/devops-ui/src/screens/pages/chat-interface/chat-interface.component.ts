@@ -67,12 +67,12 @@ export class ChatInterfaceComponent implements OnInit {
     private requestService: RequestService,
     private localStorage: LocalStorageHelper,
     private toasterService: ToasterHelper
-  ) {}
+  ) {
+    this.loadAllChatHistory();
+  }
 
   ngOnInit(): void {
-    
-    this.loadAllChatHistory();
-    this.userId =  this.localStorage.getItem('user_details')?.user_id;
+    this.userId = this.localStorage.getItem('user_details')?.user_id;
   }
 
   loadAllChatHistory(): void {
@@ -93,7 +93,7 @@ export class ChatInterfaceComponent implements OnInit {
 
     this.chatId = chat_id;
 
-    this.requestService.get(`${CHAT_API_ROUTE}/history/chat_id=${chat_id}`).subscribe({
+    this.requestService.get(`${CHAT_API_ROUTE}/history/?chat_id=${chat_id}`).subscribe({
       next: (data: ChatMessage[] | any) => {
         this.currentMessages = data || [];
         setTimeout(() => this.scrollToBottom(), 0);
@@ -106,13 +106,13 @@ export class ChatInterfaceComponent implements OnInit {
 
   deleteChatHistory(chat_id: string | undefined): void {
 
-    if(!chat_id) {
+    if (!chat_id) {
       this.pastChatHistory.shift()
       return
     }
 
     this.requestService.get(`${CHAT_API_ROUTE}/delete/chat_id=${chat_id}`).subscribe({
-      next: (data : any) => {
+      next: (data: any) => {
         this.toasterService.success(data);
         this.loadAllChatHistory();
         if (this.chatId === chat_id) {
@@ -126,21 +126,31 @@ export class ChatInterfaceComponent implements OnInit {
     });
   }
 
-  sendMessage(): void {
+  async sendMessage() {
+
     if (!this.canSend()) return;
 
-    const user_id = this.localStorage.getItem('user_details')?.user_id;
     const timestamp = new Date();
 
     const userMessage: ChatMessage = {
       role: 'user',
       content: this.userInput.trim(),
-      title: this.chatTitle,
       timestamp,
+      title: this.chatTitle,
       chat_id: this.chatId
     };
 
-    this.currentMessages.push(userMessage);
+    this.currentMessages = [...this.currentMessages, userMessage];
+    this.isTyping = true;
+    this.scrollToBottom();
+
+    const assistantMessage: ChatMessage = {
+      role: 'assistant',
+      content: '',
+      timestamp: new Date()
+    };
+
+    this.currentMessages = [...this.currentMessages, assistantMessage];
 
     const requestPayload: ChatMessageRequest = {
       content: userMessage.content,
@@ -149,40 +159,77 @@ export class ChatInterfaceComponent implements OnInit {
     };
 
     this.userInput = '';
-    this.isTyping = true;
-    this.scrollToBottom();
 
-    this.requestService.post(`${CHAT_API_ROUTE}/ask`, {...requestPayload, role: 'user'}, [SKIP_SPINNER_TRUE]).subscribe({
-      next: (response: any) => {
-        
-        const assistantMessage: ChatMessage = {
-          role: 'assistant',
-          content: response?.content || '...',
-          timestamp: new Date(),
-          chat_id: response?.chat_id,
-          message_id: response?.message_id
-        };
+    try {
+      const response = await fetch(`${CHAT_API_ROUTE}/ask`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.requestService.authToken}`
+        },
+        body: JSON.stringify({
+          role: 'user',
+          content: userMessage.content,
+          timestamp,
+          chat_id: this.chatId || ''
+        })
+      });
 
-        if (!this.chatId && response?.chat_id) {
-          this.chatId = response.chat_id;
-          this.loadAllChatHistory();
+      if (!response.body) throw new Error('No response stream');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+
+      let gotChatId = false;
+      let partial = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        partial += chunk;
+
+        // Handle case where multiple chunks may come together
+        while (partial.includes('\n')) {
+          const [line, rest] = partial.split('\n', 2);
+          partial = rest;
+
+          if (!gotChatId && line.startsWith("__CHAT_ID__")) {
+            const newChatId = line.split(":")[1]?.trim();
+            if (newChatId) {
+              this.chatId = newChatId;
+              gotChatId = true;
+            }
+            continue; // Don't render __CHAT_ID__
+          }
+
+          assistantMessage.content += line;
+
+          // Re-assign the message to trigger Angular change detection
+          this.currentMessages = [...this.currentMessages.slice(0, -1), { ...assistantMessage }];
+          this.scrollToBottom();
         }
-
-        this.currentMessages.push(assistantMessage);
-
-        this.scrollToBottom();
-        this.isTyping = false;
-      },
-      error: (err: any) => {
-        this.toasterService.error(err?.error);
-        this.isTyping = false;
       }
-    });
+
+      // Handle any final remaining chunk (after last \n)
+      if (partial && !partial.startsWith("__CHAT_ID__")) {
+        assistantMessage.content += partial;
+        this.currentMessages = [...this.currentMessages.slice(0, -1), { ...assistantMessage }];
+      }
+
+      this.isTyping = false;
+
+    } catch (err: any) {
+      console.error('Streaming error', err);
+      this.toasterService.error('Streaming error. Please try again.');
+      this.isTyping = false;
+    }
   }
 
   startNewChat(): void {
     this.currentMessages = [];
-    const newChat : ChatMessagePreview = {
+    const newChat: ChatMessagePreview = {
       timestamp: new Date(),
       title: 'New Chat',
       chat_id: ''
@@ -233,7 +280,7 @@ export class ChatInterfaceComponent implements OnInit {
 
   regenerateResponse(index: number): void {
     this.inputStatus = 'Regenerating response...';
-    setTimeout(() => (this.inputStatus = ''), 2000);
+    this.sendMessage()
   }
 
   applySuggestion(suggestion: string): void {
