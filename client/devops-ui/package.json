@@ -21,8 +21,11 @@
     "bootstrap": "^5.3.8",
     "event-source-polyfill": "^1.0.31",
     "jwt-decode": "^4.0.0",
+    "marked": "^16.3.0",
+    "ngx-markdown": "^18.0.0",
     "ngx-spinner": "^18.0.0",
     "ngx-toastr": "^19.0.0",
+    "prismjs": "^1.30.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.14.10"

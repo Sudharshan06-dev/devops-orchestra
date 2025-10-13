@@ -1,12 +1,16 @@
 import json
 import aiohttp
-import ollama
+from ollama import AsyncClient
 import os
 from typing import Dict, AsyncGenerator
 import asyncio
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OLLAMA_MODEL = os.getenv("OLLAMA_CHAT_MODEL")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
+
+# Initialize Ollama AsyncClient
+ollama_client = AsyncClient(host=OLLAMA_BASE_URL)
 
 class SimpleGitHubFetcher:
     def __init__(self, github_token: str):
@@ -55,6 +59,7 @@ class GitHubRepoAnalyzer:
         self.github_token = github_token
         self.ollama_model = ollama_model
         self.fetcher = SimpleGitHubFetcher(github_token)
+        self.ollama_client = ollama_client  # Use the global async client
 
     async def analyze_stream(self, repo_url: str) -> AsyncGenerator[str, None]:
         """
@@ -90,6 +95,9 @@ class GitHubRepoAnalyzer:
             ]
 
             matched_files = [item["path"] for item in tree if item["type"] == "blob" and any(f in item["path"] for f in config_files)]
+            has_env_file = any(".env" in f for f in matched_files)
+            self.missing_env_flag = not has_env_file
+            
             print(f"📄 Found {len(matched_files)} config files: {matched_files}")
             
             if not matched_files:
@@ -105,9 +113,16 @@ class GitHubRepoAnalyzer:
             for idx, file_path in enumerate(matched_files[:10], 1):
                 print(f"📖 Fetching file {idx}/{min(len(matched_files), 10)}: {file_path}")
                 yield f"📖 Reading {file_path}...\n"
+                await asyncio.sleep(0.01)  # Allow UI to update
+                
                 content = await self.fetcher.get_file(owner, repo, file_path)
                 if content:
                     files_content[file_path] = content[:2000] + "\n...(truncated)" if len(content) > 2000 else content
+                    yield f"   ✅ Done\n"
+                else:
+                    yield f"   ⚠️ Could not read\n"
+                
+                await asyncio.sleep(0.01)
 
             if not files_content:
                 yield "⚠️ Could not read any configuration files\n"
@@ -142,6 +157,7 @@ If none are visible, output "None found" without speculation.)
 Rules:
 - Do not explain anything.
 - Do not repeat file names multiple times.
+- If a .env, .env.example, or config file with variables is not present, list “None found” and add a final message asking the user to upload or provide the necessary environment variables manually.
 - Do not include Docker, Terraform, AWS, or cloud infra unless specified in a file.
 - Keep your answer factual and concise.
 
@@ -149,34 +165,46 @@ Repository Context:
 {context}
 """
 
-            # Use async Ollama streaming
-            print("⏳ Waiting for Ollama response...")
+            # Use TRUE async streaming from Ollama
+            print("⏳ Streaming response from Ollama...")
+            yield "---\n\n## 📊 Analysis Results:\n\n"
             
-            # Run Ollama in thread pool to not block
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: ollama.generate(
-                    model=self.ollama_model,
-                    prompt=prompt,
-                    options={
-                        "temperature": 0.1,
-                        "top_p": 0.9,
-                        "num_predict": 500
+            # Stream using AsyncClient - same as chat_agent
+            response = await self.ollama_client.chat(
+                model=self.ollama_model,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are a code analysis assistant. Extract only factual information from repository files."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
                     }
-                )
+                ],
+                stream=True,
+                options={
+                    "temperature": 0.1,
+                    "top_p": 0.9,
+                    "num_predict": 500
+                }
             )
             
-            response_text = result.get("response", "❌ No response from model.")
-            print(f"✅ Got response from Ollama ({len(response_text)} chars)")
+            # Stream tokens as they arrive
+            token_count = 0
+            async for chunk in response:
+                if 'message' in chunk and 'content' in chunk['message']:
+                    token = chunk['message']['content']
+                    yield token
+                    token_count += 1
             
-            # Stream the AI response line by line
-            yield "---\n\n## 📊 Analysis Results:\n\n"
-            for line in response_text.split('\n'):
-                yield line + '\n'
-                await asyncio.sleep(0.01)
+            print(f"✅ Streamed {token_count} tokens from Ollama")
             
             yield "\n✅ Analysis complete!\n"
+            if self.missing_env_flag:
+                yield "\n `.env` file not found in the repository.\n"
+                yield "Please upload your `.env` file to continue with deployment.\n"
+                
             print("✅ Analysis streaming completed")
             
         except Exception as e:

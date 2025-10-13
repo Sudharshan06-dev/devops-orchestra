@@ -1,8 +1,9 @@
 SUCCESS = {
         "register_user": "User has been registered successfully.",
-        "chat_delete": "Chat successfully deleted"
+        "chat_delete": "Chat successfully deleted",
+        "file_uploaded_successfully": "Env file has been securely uploaded",
 }
-    
+
 ERROR = {
         "invalid_user": "User registration failed. Please try again!",
         "invalid_user_login": "Login Failed! Username or Password is incorrect",

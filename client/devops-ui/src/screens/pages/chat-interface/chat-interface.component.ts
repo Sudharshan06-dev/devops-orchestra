@@ -1,11 +1,11 @@
 import { CommonModule } from '@angular/common';
-import { Component, ViewChild, ElementRef, OnInit } from '@angular/core';
+import { Component, ViewChild, ElementRef, OnInit, ChangeDetectorRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RequestService } from '../../../services/request.service';
 import { CHAT_API_ROUTE } from '../../../environment';
 import { LocalStorageHelper } from '../../../services/local-storage.service';
 import { ToasterHelper } from '../../../services/toast.service';
-import { SKIP_SPINNER_TRUE } from '../../../interceptors/spinner.interceptor';
+import { MarkdownModule, provideMarkdown } from 'ngx-markdown';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -31,7 +31,8 @@ interface ChatMessageRequest {
 @Component({
   selector: 'app-chat-interface',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MarkdownModule],
+  providers: [provideMarkdown()],
   templateUrl: './chat-interface.component.html',
   styleUrl: './chat-interface.component.css'
 })
@@ -43,8 +44,11 @@ export class ChatInterfaceComponent implements OnInit {
   public isTyping: boolean = false;
   public textareaRows: number = 1;
   public showSuggestions: boolean = false;
+  public showHistory: boolean = true;
   public inputStatus: string = '';
+  public userName: string = "";
   public chatId: string = '';
+  public uploadedFileName: string = "";
   public userId: number = 0;
   public chatTitle: string = 'New Chat';
   public isOnline: boolean = true;
@@ -66,6 +70,7 @@ export class ChatInterfaceComponent implements OnInit {
   constructor(
     private requestService: RequestService,
     private localStorage: LocalStorageHelper,
+    private cd: ChangeDetectorRef,
     private toasterService: ToasterHelper
   ) {
     this.loadAllChatHistory();
@@ -73,6 +78,7 @@ export class ChatInterfaceComponent implements OnInit {
 
   ngOnInit(): void {
     this.userId = this.localStorage.getItem('user_details')?.user_id;
+    this.userName = this.localStorage.getItem('user_details')?.firstname.toUpperCase()[0] + this.localStorage.getItem('user_details')?.lastname.toUpperCase()[0]
   }
 
   loadAllChatHistory(): void {
@@ -126,8 +132,43 @@ export class ChatInterfaceComponent implements OnInit {
     });
   }
 
-  async sendMessage() {
+  triggerFileUpload() {
+    const input = document.getElementById('envUpload') as HTMLInputElement;
+    if (input) {
+      input.click();
+    }
+  }
 
+  async handleEnvFileUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input?.files?.length) {
+      const file = input.files[0];
+      this.uploadedFileName = file.name;
+      const formData = new FormData();
+      formData.append('file', file);
+
+      this.requestService.postFile(`${CHAT_API_ROUTE}/upload-env`, formData).subscribe({
+          next: (data: any) => {
+            this.toasterService.success(data);
+            this.removeFile(event)
+          },
+          error: (err: any) => {
+            this.toasterService.error(err?.error);
+          }
+        });
+    }
+  }
+
+  removeFile(event: Event) {
+    event.stopPropagation();
+    this.uploadedFileName = '';
+    const fileInput = document.getElementById('envUpload') as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = '';
+    }
+  }
+
+  async sendMessage() {
     if (!this.canSend()) return;
 
     const timestamp = new Date();
@@ -144,7 +185,7 @@ export class ChatInterfaceComponent implements OnInit {
     this.isTyping = true;
     this.scrollToBottom();
 
-    const assistantMessage: ChatMessage = {
+    let assistantMessage: ChatMessage = {
       role: 'assistant',
       content: '',
       timestamp: new Date()
@@ -190,7 +231,6 @@ export class ChatInterfaceComponent implements OnInit {
         const chunk = decoder.decode(value, { stream: true });
         partial += chunk;
 
-        // Handle case where multiple chunks may come together
         while (partial.includes('\n')) {
           const [line, rest] = partial.split('\n', 2);
           partial = rest;
@@ -201,21 +241,39 @@ export class ChatInterfaceComponent implements OnInit {
               this.chatId = newChatId;
               gotChatId = true;
             }
-            continue; // Don't render __CHAT_ID__
+            continue;
           }
 
-          assistantMessage.content += line;
+          // Create a NEW object reference each time
+          assistantMessage = {
+            ...assistantMessage,
+            content: assistantMessage.content + line
+          };
 
-          // Re-assign the message to trigger Angular change detection
-          this.currentMessages = [...this.currentMessages.slice(0, -1), { ...assistantMessage }];
+          // Replace the last message with the new reference
+          this.currentMessages = [
+            ...this.currentMessages.slice(0, -1),
+            assistantMessage
+          ];
+
+          this.cd.detectChanges();
           this.scrollToBottom();
         }
       }
 
-      // Handle any final remaining chunk (after last \n)
+      // Handle remaining chunk
       if (partial && !partial.startsWith("__CHAT_ID__")) {
-        assistantMessage.content += partial;
-        this.currentMessages = [...this.currentMessages.slice(0, -1), { ...assistantMessage }];
+        assistantMessage = {
+          ...assistantMessage,
+          content: assistantMessage.content + partial
+        };
+
+        this.currentMessages = [
+          ...this.currentMessages.slice(0, -1),
+          assistantMessage
+        ];
+
+        this.cd.detectChanges();
       }
 
       this.isTyping = false;
@@ -270,6 +328,14 @@ export class ChatInterfaceComponent implements OnInit {
     return message?.timestamp
       ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : '';
+  }
+
+  messageFormat(timestamp: Date) {
+    return new Date(timestamp).getTime()
+  }
+
+  trackByMessageIndex(index: number, message: ChatMessage): string {
+    return `${index}-${message.content.length}-${new Date(message.timestamp).getTime()}`;
   }
 
   copyMessage(content: string): void {

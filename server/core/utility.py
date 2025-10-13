@@ -6,5 +6,12 @@ from schemas.shared import DefaultResponse
 
 ##Common Utility Function for Responses ##
 def create_response(status_code: int, message: str, status: str):
-    message_value = SUCCESS.get(message) if status == 'Success' else ERROR.get(message)
-    return JSONResponse(status_code=status_code, content=DefaultResponse(title=status, message=message_value).dict())
+    if status == 'Success':
+        message_value = SUCCESS.get(message, "Success")
+    else:
+        message_value = ERROR.get(message, "An error occurred")
+    
+    return JSONResponse(
+        status_code=status_code, 
+        content=DefaultResponse(title=status, message=message_value).dict()
+    )

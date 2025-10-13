@@ -1,4 +1,5 @@
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, UploadFile, File
+from pathlib import Path
 from sqlalchemy.orm import Session
 from config.database import get_db_connection
 from fastapi.responses import StreamingResponse
@@ -15,7 +16,6 @@ from boto3.dynamodb.conditions import Key, Attr
 import logging
 from typing import Optional
 from agents.supervisor_runner import route_to_agent
-import asyncio
 
 
 logger = logging.getLogger(__name__)
@@ -82,9 +82,6 @@ async def get_chat_history(chat_id: str):
 @chat_router.post('/ask')
 async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Depends(get_db_connection)):
     try:
-        print(f"\n{'='*60}")
-        print(f"📨 New request received")
-        print(f"{'='*60}")
         
         # 🧑‍💼 Get user ID from context
         user_context = user_id_ctx.get()
@@ -99,6 +96,7 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
         timestamp = datetime.now(timezone.utc).isoformat()
         print(f"💬 Chat ID: {final_chat_id}")
         print(f"📝 User message: {user_chat_data.content[:100]}...")
+        
 
         # 📝 Save user message
         user_msg = {
@@ -121,9 +119,9 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
             # Send chat ID first
             yield f"__CHAT_ID__:{final_chat_id}\n"
             print(f"✅ Sent chat ID: {final_chat_id}")
-            await asyncio.sleep(0.05)
             
             full_reply = ""
+            agent_name = None  # Track which agent responded
             
             try:
                 # Route to appropriate agent
@@ -158,23 +156,27 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
                 full_reply = error_msg
 
             # 💬 Save assistant reply to Dynamo
-            try:
-                print("💾 Saving assistant message to DynamoDB...")
-                assistant_msg = {
-                    "chat_id": final_chat_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "message_id": str(uuid4()),
-                    "role": "assistant",
-                    "user_id": user_id,
-                    "content": full_reply.strip(),
-                    "is_active": 1
-                }
-                dynamo_db.put_item(Item=assistant_msg)
-                print("✅ Assistant message saved to DynamoDB")
-            except Exception as e:
-                print(f"❌ Failed to save to DynamoDB: {str(e)}")
+            # Only save if NOT terraform_generator (it will save its own completion message)
+            if agent_name != "terraform_generator":
+                try:
+                    print("💾 Saving assistant message to DynamoDB...")
+                    assistant_msg = {
+                        "chat_id": final_chat_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "message_id": str(uuid4()),
+                        "role": "assistant",
+                        "user_id": user_id,
+                        "content": full_reply.strip(),
+                        "is_active": 1
+                    }
+                    dynamo_db.put_item(Item=assistant_msg)
+                    print("✅ Assistant message saved to DynamoDB")
+                except Exception as e:
+                    print(f"❌ Failed to save to DynamoDB: {str(e)}")
+            else:
+                print("⏭️ Skipping immediate save - terraform_generator will save completion message later")
 
-            # ➕ Update chat count
+            #Update chat count
             try:
                 if not user_chat_count:
                     user_chat_count = UserChatCountModel(user_id=user_id, count=1)
@@ -216,4 +218,27 @@ async def delete_chat(chat_id: str):
 
     except Exception as e:
         logger.error(f"Error in /chat/delete: {str(e)}")
+        return create_response(500, "delete_item_failed", "Error")
+
+@chat_router.post("/upload-env")
+async def upload_env_file(file: UploadFile = File(...)):
+    try:
+        user_context = user_id_ctx.get()
+        user_id = user_context.user_id
+        
+        contents = await file.read()
+
+        # Save to local folder with user ID
+        upload_path = Path(f"./user_uploads/{user_id}")
+        upload_path.mkdir(parents=True, exist_ok=True)
+        file_path = upload_path / ".env"
+        file_path.write_bytes(contents)
+
+        # Optional: Log or save to DB/S3 later
+        
+        print(f"✅ Received .env for user {user_id}: saved to {file_path}")
+        return create_response(200, "file_uploaded_successfully", "Success")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
         return create_response(500, "delete_item_failed", "Error")
