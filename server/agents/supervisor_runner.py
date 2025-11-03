@@ -3,8 +3,9 @@ import re
 from dotenv import load_dotenv
 from core.context_vars import user_id_ctx
 from agents.chat_agent import stream_assistant_reply
+from agents.deployment_agent import deployment_generator  # Changed from terraform_generator
 from agents.repo_analyzer import GitHubRepoAnalyzer
-from agents.terraform_agent import terraform_generator
+from chat.models.ChatSessions import save_session_context, update_session_field, get_session_context
 
 load_dotenv()
 
@@ -12,17 +13,6 @@ load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OLLAMA_MODEL = os.getenv("OLLAMA_CHAT_MODEL")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
-
-# === Session Context (tracks last agent used per chat) ===
-SESSION_CONTEXT = {
-    # Structure: {
-    #   "chat_id": {
-    #       "last_agent": "agent_name",
-    #       "repo_data": {...},  # Store full analysis here
-    #       "repo_url": "https://...",
-    #   }
-    # }
-}
 
 # === Helper Functions ===
 def is_github_url(text: str) -> bool:
@@ -35,12 +25,22 @@ def extract_github_url(text: str) -> str:
     return match.group(0) if match else ""
 
 # === Main Router ===
-async def route_to_agent(user_input: str, chat_id: str = "default"):
+async def route_to_agent(user_input: str, chat_id: str = "default", user_id: int = None):
     """
     Smart routing logic that determines which agent to use.
     Returns: (agent_name, response_generator)
     """
     print(f"🎯 Routing input: {user_input[:100]}...")
+    print(f"📋 Chat ID: {chat_id}, User ID: {user_id}")
+    
+    # Load existing session context
+    session_context = get_session_context(chat_id)
+    
+    # Initialize data structure if not exists
+    if 'data' not in session_context:
+        session_context['data'] = {}
+    
+    print(f"📦 Session data keys: {list(session_context.get('data', {}).keys())}")
     
     # === Priority 1: GitHub URL Detection ===
     if is_github_url(user_input):
@@ -49,119 +49,110 @@ async def route_to_agent(user_input: str, chat_id: str = "default"):
         print(f"🔀 Routing to: repo_analyzer")
         
         async def repo_stream():
-            print(f"🚀 Starting repo_stream for: {github_url} {GITHUB_TOKEN}")
+            print(f"🚀 Starting repo_stream for: {github_url}")
             analyzer = GitHubRepoAnalyzer(
                 github_token=GITHUB_TOKEN, 
                 ollama_model=OLLAMA_MODEL
             )
             
-            # Initialize storage for this chat (MOVED BEFORE ASSIGNMENT)
-            if chat_id not in SESSION_CONTEXT:
-                SESSION_CONTEXT[chat_id] = {}
-            
-            # Now it's safe to assign properties
-            SESSION_CONTEXT[chat_id]["last_agent"] = "repo_analyzer"
-            SESSION_CONTEXT[chat_id]["repo_url"] = github_url
-            SESSION_CONTEXT[chat_id]["repo_data"] = {
-                "files": [],
-                "analysis": "",
-                "dependencies": {}
+            # Initialize session
+            session_context['last_agent'] = 'repo_analyzer'
+            session_context['data']['repo_data'] = {
+                "repo_url": github_url,
+                "status": "analyzing"
             }
             
             full_response = ""
-            chunk_count = 0
             async for chunk in analyzer.analyze_stream(github_url):
-                chunk_count += 1
                 full_response += chunk
                 yield chunk
             
-            # Store the complete analysis
-            SESSION_CONTEXT[chat_id]["repo_data"]["full_analysis"] = full_response
+            # CRITICAL: Store STRUCTURED data, not raw text
+            if hasattr(analyzer, 'structured_data'):
+                session_context['data']['repo_data'] = analyzer.structured_data
+                session_context['data']['repo_data']['full_analysis_text'] = full_response
+                session_context['data']['repo_data']['status'] = "completed"
+            else:
+                session_context['data']['repo_data']['status'] = "failed"
             
-            print(f"✅ repo_stream completed: {chunk_count} chunks")
-            print(f"💾 Stored analysis for chat_id: {chat_id}")
+            # Save to DynamoDB
+            save_session_context(chat_id, session_context)
+            
+            print(f"✅ Stored structured analysis for {chat_id}")
+            print(f"📊 Analysis keys: {list(session_context['data']['repo_data'].get('analysis', {}).keys())}")
         
         return "repo_analyzer", repo_stream()
     
     # === Priority 2: Terraform Keywords ===
-    terraform_keywords = [
-        'terraform', 'infrastructure', 'ecs', 'rds', 
-        'alb', 'load balancer', 'generate infra', 'deploy infrastructure',
+    deployment_keywords = [
+        # Direct deployment requests
+        'deploy', 'deploy my app', 'deploy application', 'deploy to aws',
+        'deploy to cloud', 'go live', 'launch app', 'launch application',
+        
+        # Infrastructure/Configuration generation
+        'generate deployment', 'create deployment', 'setup deployment',
+        'generate infrastructure', 'create infrastructure', 'setup infrastructure',
+        'prepare deployment', 'build deployment',
+        
+        # Docker-specific
+        'generate docker', 'create docker', 'dockerize', 'containerize',
+        'generate dockerfile', 'create dockerfile',
+        
+        # CDK-specific
+        'generate cdk', 'create cdk', 'cdk deployment', 'aws cdk',
+        
+        # General cloud deployment terms
+        'deploy on aws', 'deploy on ecs', 'deploy with fargate',
+        'setup on aws', 'host on aws', 'cloud deployment',
+        
+        # Legacy terms (for backwards compatibility)
+        'terraform', 'infrastructure', 'ecs', 'fargate',
         'cloudformation', 'cloud formation'
     ]
-    if any(keyword in user_input.lower() for keyword in terraform_keywords):
-        # Initialize session context if needed
-        if chat_id not in SESSION_CONTEXT:
-            SESSION_CONTEXT[chat_id] = {}
-        
-        # Check if we have repo context
-        repo_context = SESSION_CONTEXT[chat_id].get("repo_data")
+    
+    if any(keyword in user_input.lower() for keyword in deployment_keywords):
+        repo_context = session_context.get('data', {}).get('repo_data')
         
         if repo_context:
-            print(f"✅ Found repo context for terraform generation")
+            print(f"✅ Found repo context for deployment generation")
+            print(f"   Repo URL: {repo_context.get('repo_url', 'N/A')}")
         else:
-            print(f"⚠️ No repo context found - generating generic terraform")
+            print(f"⚠️ No repo context found - cannot generate deployment")
+            async def no_repo_stream():
+                yield "⚠️ Please analyze a repository first\n"
+                yield "Share a GitHub URL to get started!\n"
+            return "chat_agent", no_repo_stream()
         
-        SESSION_CONTEXT[chat_id]["last_agent"] = "terraform_generator"
-        print(f"🔀 Routing to: terraform_generator")
+        session_context['last_agent'] = 'deployment_generator'
+        session_context['data']['deployment_config'] = {
+            'status': 'generating',
+            'job_id': None,
+            'dockerfile_path': None,
+            'cdk_path': None,
+            'generated_at': None,
+            'error': None
+        }
         
-        async def terraform_stream():
-            print("🚀 Starting terraform_stream")
+        save_session_context(chat_id, session_context)
+        
+        print(f"🔀 Routing to: deployment_generator")
+        
+        async def deployment_stream():
+            print("🚀 Starting deployment_stream")
             chunk_count = 0
-            full_terraform = ""
-            user_context = user_id_ctx.get()
-            user_id = user_context.user_id
             
-            async for chunk in terraform_generator(user_input, repo_context, chat_id=chat_id, user_id=user_id):
+            async for chunk in deployment_generator(repo_context, chat_id=chat_id, user_id=user_id):
                 chunk_count += 1
-                full_terraform += chunk
                 yield chunk
             
-            # Store the terraform config for later validation/deployment
-            SESSION_CONTEXT[chat_id]["terraform_config"] = full_terraform
-            
-            print(f"✅ terraform_stream completed: {chunk_count} chunks")
+            print(f"✅ deployment_stream completed: {chunk_count} chunks")
+
+        return "deployment_generator", deployment_stream()
     
-        return "terraform_generator", terraform_stream()
+    # === Priority 3: Default to Chat Agent ===
+    session_context['last_agent'] = 'chat_agent'
+    save_session_context(chat_id, session_context)
     
-    # === Priority 3: Deployment/Validation Keywords ===
-    deployment_keywords = [
-        'deploy', 'validate', 'check prerequisites', 'ready to deploy',
-        'deployment check', 'can i deploy', 'validate deployment'
-    ]
-    if any(keyword in user_input.lower() for keyword in deployment_keywords):
-        # Initialize session context if needed
-        if chat_id not in SESSION_CONTEXT:
-            SESSION_CONTEXT[chat_id] = {}
-        
-        # Check if we have terraform config
-        if "terraform_config" in SESSION_CONTEXT[chat_id]:
-            print(f"🔀 Routing to: deployment_validator")
-            
-            async def deployment_stream():
-                # This will be implemented with your validation logic
-                yield "🔍 Validating deployment prerequisites...\n\n"
-                yield "⚠️ Deployment validation agent not yet implemented.\n"
-                yield "This will check:\n"
-                yield "- AWS credentials\n"
-                yield "- Environment variables\n"
-                yield "- S3 code presence\n"
-                yield "- Terraform variables\n"
-            
-            return "deployment_validator", deployment_stream()
-        else:
-            async def no_terraform_stream():
-                yield "⚠️ No Terraform configuration found.\n\n"
-                yield "Please generate Terraform configuration first by asking:\n"
-                yield '"Generate Terraform for AWS" or similar.\n'
-            
-            return "chat_agent", no_terraform_stream()
-    
-    # === Priority 4: Default to Chat Agent ===
-    if chat_id not in SESSION_CONTEXT:
-        SESSION_CONTEXT[chat_id] = {}
-    
-    SESSION_CONTEXT[chat_id]["last_agent"] = "chat_agent"
     print(f"🔀 Routing to: chat_agent")
     
     async def chat_stream():

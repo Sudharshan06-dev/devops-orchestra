@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, UploadFile, File
+from fastapi import Depends, HTTPException, UploadFile, File, Form
 from pathlib import Path
 from sqlalchemy.orm import Session
 from config.database import get_db_connection
@@ -20,7 +20,7 @@ from agents.supervisor_runner import route_to_agent
 
 logger = logging.getLogger(__name__)
 
-dynamo_db = DynamoDBConnection.get_instance().table
+dynamo_db = DynamoDBConnection.get_instance().get_table()
 
 @chat_router.get("/all")
 async def get_all_chats():
@@ -128,7 +128,8 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
                 print("🎯 Calling route_to_agent...")
                 agent_name, response_generator = await route_to_agent(
                     user_chat_data.content, 
-                    chat_id=final_chat_id
+                    chat_id=final_chat_id,
+                    user_id=user_id
                 )
                 print(f"✅ Agent selected: {agent_name}")
                 
@@ -221,24 +222,27 @@ async def delete_chat(chat_id: str):
         return create_response(500, "delete_item_failed", "Error")
 
 @chat_router.post("/upload-env")
-async def upload_env_file(file: UploadFile = File(...)):
+async def upload_env_file(
+    file: UploadFile = File(...),
+    chat_id: str = Form(...)  # ✅ Capture chat_id from form
+):
     try:
+        # Get user ID from context (or pass from frontend if needed)
         user_context = user_id_ctx.get()
         user_id = user_context.user_id
-        
+
+        # Read uploaded .env content
         contents = await file.read()
 
-        # Save to local folder with user ID
-        upload_path = Path(f"./user_uploads/{user_id}")
+        # Save under user-specific folder with chat ID
+        upload_path = Path(f"./user_uploads/{user_id}/{chat_id}")
         upload_path.mkdir(parents=True, exist_ok=True)
         file_path = upload_path / ".env"
         file_path.write_bytes(contents)
 
-        # Optional: Log or save to DB/S3 later
-        
-        print(f"✅ Received .env for user {user_id}: saved to {file_path}")
+        print(f"✅ Received .env for user {user_id}, chat {chat_id}: saved to {file_path}")
         return create_response(200, "file_uploaded_successfully", "Success")
 
     except Exception as e:
+        print(f"❌ Upload failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-        return create_response(500, "delete_item_failed", "Error")

@@ -7,6 +7,7 @@ import { LocalStorageHelper } from '../../../services/local-storage.service';
 import { ToasterHelper } from '../../../services/toast.service';
 import { MarkdownModule, provideMarkdown } from 'ngx-markdown';
 
+
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -22,11 +23,6 @@ interface ChatMessagePreview {
   timestamp: Date
 }
 
-interface ChatMessageRequest {
-  content: string;
-  timestamp: Date;
-  chat_id?: string;
-}
 
 @Component({
   selector: 'app-chat-interface',
@@ -43,7 +39,7 @@ export class ChatInterfaceComponent implements OnInit {
   public userInput: string = '';
   public isTyping: boolean = false;
   public textareaRows: number = 1;
-  public showSuggestions: boolean = false;
+
   public showHistory: boolean = true;
   public inputStatus: string = '';
   public userName: string = "";
@@ -53,16 +49,8 @@ export class ChatInterfaceComponent implements OnInit {
   public chatTitle: string = 'New Chat';
   public isOnline: boolean = true;
 
-  public suggestions: string[] = [
-    'Analyze my AWS infrastructure',
-    'Check ECS service health',
-    'Review Terraform configuration',
-    'Troubleshoot deployment issues',
-    'Monitor application performance',
-    'Security audit checklist'
-  ];
 
-  public inputSuggestions: string[] = [];
+
 
   @ViewChild('scrollContainer') scrollContainer!: ElementRef;
   @ViewChild('messageInput') messageInput!: ElementRef;
@@ -95,7 +83,7 @@ export class ChatInterfaceComponent implements OnInit {
 
   loadChatHistory(chat_id: string | undefined): void {
 
-    if (!chat_id) return;
+    if (!chat_id || chat_id == 'New Chat') return;
 
     this.chatId = chat_id;
 
@@ -146,16 +134,17 @@ export class ChatInterfaceComponent implements OnInit {
       this.uploadedFileName = file.name;
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('chat_id', this.chatId);
 
       this.requestService.postFile(`${CHAT_API_ROUTE}/upload-env`, formData).subscribe({
-          next: (data: any) => {
-            this.toasterService.success(data);
-            this.removeFile(event)
-          },
-          error: (err: any) => {
-            this.toasterService.error(err?.error);
-          }
-        });
+        next: (data: any) => {
+          this.toasterService.success(data);
+          this.removeFile(event)
+        },
+        error: (err: any) => {
+          this.toasterService.error(err?.error);
+        }
+      });
     }
   }
 
@@ -193,15 +182,10 @@ export class ChatInterfaceComponent implements OnInit {
 
     this.currentMessages = [...this.currentMessages, assistantMessage];
 
-    const requestPayload: ChatMessageRequest = {
-      content: userMessage.content,
-      timestamp,
-      chat_id: this.chatId || ''
-    };
-
     this.userInput = '';
 
     try {
+
       const response = await fetch(`${CHAT_API_ROUTE}/ask`, {
         method: 'POST',
         headers: {
@@ -240,6 +224,11 @@ export class ChatInterfaceComponent implements OnInit {
             if (newChatId) {
               this.chatId = newChatId;
               gotChatId = true;
+              let latestMessage = this.pastChatHistory.length > 0 ? this.pastChatHistory[0] : null
+
+              //Update the chat id of the recently created one
+              if (latestMessage)
+                latestMessage.chat_id = this.chatId
             }
             continue;
           }
@@ -256,8 +245,10 @@ export class ChatInterfaceComponent implements OnInit {
             assistantMessage
           ];
 
-          this.cd.detectChanges();
-          this.scrollToBottom();
+          setTimeout(() => {
+            this.scrollToBottom();
+            this.cd.detectChanges();
+          }, 100);
         }
       }
 
@@ -290,7 +281,7 @@ export class ChatInterfaceComponent implements OnInit {
     const newChat: ChatMessagePreview = {
       timestamp: new Date(),
       title: 'New Chat',
-      chat_id: ''
+      chat_id: 'New Chat'
     }
     this.pastChatHistory.unshift(newChat)
   }
@@ -319,9 +310,6 @@ export class ChatInterfaceComponent implements OnInit {
     }
   }
 
-  formatMessage(content: string): string {
-    return content.replace(/\n/g, '<br>');
-  }
 
   getMessageTime(index: number): string {
     const message = this.currentMessages[index];
@@ -330,9 +318,7 @@ export class ChatInterfaceComponent implements OnInit {
       : '';
   }
 
-  messageFormat(timestamp: Date) {
-    return new Date(timestamp).getTime()
-  }
+
 
   trackByMessageIndex(index: number, message: ChatMessage): string {
     return `${index}-${message.content.length}-${new Date(message.timestamp).getTime()}`;
@@ -351,12 +337,5 @@ export class ChatInterfaceComponent implements OnInit {
 
   applySuggestion(suggestion: string): void {
     this.userInput = suggestion;
-    this.showSuggestions = false;
-  }
-
-  getLastMessagePreview(content: string): string {
-    if (!content) return 'No messages yet';
-    const preview = content.replace(/<[^>]*>/g, '');
-    return preview.length > 50 ? preview.substring(0, 50) + '...' : preview;
   }
 }

@@ -296,7 +296,7 @@ async def main():
     analyzer = GitHubRepoAnalyzer(github_token=GITHUB_TOKEN, ollama_model=OLLAMA_MODEL)
     
     try:
-        results = await analyzer.analyze_repository(github_url)
+        results = await analyzer.analyze(github_url)
         
         if not results:
             print("\n❌ Analysis failed")

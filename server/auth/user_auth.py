@@ -51,6 +51,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db_connect
 
     # Create JWT token
     access_token = create_access_token(data={
+        "user_id": user.user_id,
         "sub": user.email,
         "firstname": user.firstname,
         "lastname": user.lastname
