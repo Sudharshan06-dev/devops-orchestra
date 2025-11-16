@@ -16,6 +16,7 @@ from boto3.dynamodb.conditions import Key, Attr
 import logging
 from typing import Optional
 from agents.supervisor_runner import route_to_agent
+from collections import defaultdict
 
 
 logger = logging.getLogger(__name__)
@@ -30,17 +31,17 @@ async def get_all_chats():
         raise HTTPException(status_code=401, detail="User not authenticated")
     
     user_id = user_context.user_id  # Get the actual user_id from the UserModel object
-            
+                
     try:
         # Query all chats grouped by chat_id (last message as preview)
         response = dynamo_db.query(
-            IndexName="user_chat_index",
+            IndexName="user_id-timestamp-index",
             KeyConditionExpression=Key("user_id").eq(user_id),
             #FilterExpression=Attr("is_active").eq(1),
             ScanIndexForward=False
         )
-            
-        grouped = {}
+                    
+        grouped = defaultdict()
         for item in response.get('Items', []):
             chat_id = item["chat_id"]
             if chat_id not in grouped:  # First message = most recent due to sort
@@ -82,8 +83,7 @@ async def get_chat_history(chat_id: str):
 @chat_router.post('/ask')
 async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Depends(get_db_connection)):
     try:
-        
-        # 🧑‍💼 Get user ID from context
+        # 🧑‍💼 Get user ID
         user_context = user_id_ctx.get()
         user_id = user_context.user_id
         print(f"👤 User ID: {user_id}")
@@ -92,11 +92,25 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
         user_chat_count = db.query(UserChatCountModel).filter(UserChatCountModel.user_id == user_id).first()
         count = user_chat_count.count if user_chat_count else 0
 
-        final_chat_id = user_chat_data.chat_id or f"user{user_id}-chat{count + 1}"
+        final_chat_id = user_chat_data.chat_id if user_chat_data and user_chat_data.chat_id else f"user{user_id}-chat{count + 1}"
         timestamp = datetime.now(timezone.utc).isoformat()
         print(f"💬 Chat ID: {final_chat_id}")
-        print(f"📝 User message: {user_chat_data.content[:100]}...")
-        
+
+        # ✅ UPDATE CHAT COUNT BEFORE STREAMING
+        try:
+            if not user_chat_count:
+                user_chat_count = UserChatCountModel(user_id=user_id, count=1)
+                db.add(user_chat_count)
+            else:
+                user_chat_count.count += 1
+            
+            db.commit()
+            db.refresh(user_chat_count)
+            print(f"✅ Chat count updated: {user_chat_count.count}")
+        except Exception as e:
+            db.rollback()
+            print(f"❌ Failed to update chat count: {str(e)}")
+            # Don't fail the request, just log it
 
         # 📝 Save user message
         user_msg = {
@@ -112,8 +126,6 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
         print("✅ User message saved to DynamoDB")
 
         async def event_stream():
-            nonlocal user_chat_count
-            
             print("\n🌊 Starting event stream...")
             
             # Send chat ID first
@@ -121,10 +133,10 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
             print(f"✅ Sent chat ID: {final_chat_id}")
             
             full_reply = ""
-            agent_name = None  # Track which agent responded
+            agent_name = None
             
             try:
-                # Route to appropriate agent
+                # Route to agent
                 print("🎯 Calling route_to_agent...")
                 agent_name, response_generator = await route_to_agent(
                     user_chat_data.content, 
@@ -133,20 +145,19 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
                 )
                 print(f"✅ Agent selected: {agent_name}")
                 
-                # Stream the response
+                # Stream response
                 chunk_count = 0
-                print("📤 Starting to stream chunks to client...")
+                print("📤 Starting to stream chunks...")
                 async for chunk in response_generator:
-                    if chunk:  # Only yield non-empty chunks
+                    if chunk:
                         yield chunk
                         full_reply += chunk
                         chunk_count += 1
                         
-                        # Log progress every 50 chunks
                         if chunk_count % 50 == 0:
-                            print(f"📊 Streamed {chunk_count} chunks so far...")
+                            print(f"📊 Streamed {chunk_count} chunks...")
                 
-                print(f"✅ Streaming complete: {chunk_count} total chunks, {len(full_reply)} total chars")
+                print(f"✅ Streaming complete: {chunk_count} chunks, {len(full_reply)} chars")
                         
             except Exception as err:
                 print(f"❌ Error in event_stream: {str(err)}")
@@ -156,11 +167,10 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
                 yield error_msg
                 full_reply = error_msg
 
-            # 💬 Save assistant reply to Dynamo
-            # Only save if NOT terraform_generator (it will save its own completion message)
-            if agent_name != "terraform_generator":
+            # 💬 Save assistant reply (skip if deployment_generator)
+            if agent_name != "deployment_generator":
                 try:
-                    print("💾 Saving assistant message to DynamoDB...")
+                    print("💾 Saving assistant message...")
                     assistant_msg = {
                         "chat_id": final_chat_id,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -171,30 +181,18 @@ async def ask_streaming_agent(user_chat_data: UserChatRequest, db: Session = Dep
                         "is_active": 1
                     }
                     dynamo_db.put_item(Item=assistant_msg)
-                    print("✅ Assistant message saved to DynamoDB")
+                    print("✅ Assistant message saved")
                 except Exception as e:
                     print(f"❌ Failed to save to DynamoDB: {str(e)}")
             else:
-                print("⏭️ Skipping immediate save - terraform_generator will save completion message later")
-
-            #Update chat count
-            try:
-                if not user_chat_count:
-                    user_chat_count = UserChatCountModel(user_id=user_id, count=1)
-                    db.add(user_chat_count)
-                else:
-                    user_chat_count.count += 1
-                db.commit()
-                print(f"✅ Updated chat count for user {user_id}: {user_chat_count.count}")
-            except Exception as e:
-                print(f"❌ Failed to update chat count: {str(e)}")
+                print("⏭️ Skipping save - deployment_generator will save later")
             
             print(f"{'='*60}")
-            print(f"✅ Request completed successfully")
+            print(f"✅ Request completed")
             print(f"{'='*60}\n")
 
         return StreamingResponse(event_stream(), media_type="text/plain")
-
+        
     except Exception as e:
         print(f"❌ Fatal error in /chat/ask: {str(e)}")
         import traceback

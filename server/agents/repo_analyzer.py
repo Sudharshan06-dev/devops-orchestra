@@ -1,11 +1,13 @@
-import json
-import aiohttp
 from ollama import AsyncClient
 import os
-from typing import Dict, AsyncGenerator
+from dotenv import load_dotenv
+from typing import AsyncGenerator
 from .deterministic_repo_analyzer import DeterministicRepoAnalyzer
 from .github_fetcher import SimpleGitHubFetcher
 import asyncio
+import traceback
+
+load_dotenv()
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 OLLAMA_MODEL = os.getenv("OLLAMA_CHAT_MODEL")
@@ -16,7 +18,7 @@ ollama_client = AsyncClient(host=OLLAMA_BASE_URL)
 
 class GitHubRepoAnalyzer:
     def __init__(self, github_token: str, ollama_model: str = "phi3:mini"):
-        self.github_token = github_token
+        self.github_token = GITHUB_TOKEN
         self.ollama_model = ollama_model
         self.fetcher = SimpleGitHubFetcher(github_token)
         self.ollama_client = ollama_client  # Use the global async client
@@ -209,7 +211,6 @@ class GitHubRepoAnalyzer:
         except Exception as e:
             error_msg = f"❌ Error: {str(e)}\n"
             print(error_msg)
-            import traceback
             print(traceback.format_exc())
             yield error_msg
 

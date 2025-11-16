@@ -1,5 +1,4 @@
 import json
-import boto3
 from chat.dynamo_instance import DynamoDBConnection
 
 chat_sessions_model = DynamoDBConnection.get_instance().get_table('chat-sessions')

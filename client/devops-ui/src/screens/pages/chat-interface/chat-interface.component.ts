@@ -49,9 +49,6 @@ export class ChatInterfaceComponent implements OnInit {
   public chatTitle: string = 'New Chat';
   public isOnline: boolean = true;
 
-
-
-
   @ViewChild('scrollContainer') scrollContainer!: ElementRef;
   @ViewChild('messageInput') messageInput!: ElementRef;
 
@@ -220,15 +217,32 @@ export class ChatInterfaceComponent implements OnInit {
           partial = rest;
 
           if (!gotChatId && line.startsWith("__CHAT_ID__")) {
+            
             const newChatId = line.split(":")[1]?.trim();
             if (newChatId) {
+
               this.chatId = newChatId;
               gotChatId = true;
-              let latestMessage = this.pastChatHistory.length > 0 ? this.pastChatHistory[0] : null
 
-              //Update the chat id of the recently created one
-              if (latestMessage)
-                latestMessage.chat_id = this.chatId
+              if (this.pastChatHistory.length > 0) {
+                // Find the chat: either by current chatId or it's the new one at index 0
+                let chatIndex = this.pastChatHistory.findIndex(chat => chat.chat_id === this.chatId);
+
+                if (chatIndex === -1) {
+                  // New chat, should be at index 0
+                  chatIndex = 0;
+                }
+
+                // Get the chat and update it
+                const chatToUpdate = this.pastChatHistory[chatIndex];
+                const updatedChat = { ...chatToUpdate, chat_id: newChatId };
+
+                // Move updated chat to index 0 (most recent)
+                this.pastChatHistory = [
+                  updatedChat,
+                  ...this.pastChatHistory.filter((_, index) => index !== chatIndex)
+                ];
+              }
             }
             continue;
           }
@@ -283,6 +297,7 @@ export class ChatInterfaceComponent implements OnInit {
       title: 'New Chat',
       chat_id: 'New Chat'
     }
+    this.chatId = ""
     this.pastChatHistory.unshift(newChat)
   }
 
@@ -317,8 +332,6 @@ export class ChatInterfaceComponent implements OnInit {
       ? new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       : '';
   }
-
-
 
   trackByMessageIndex(index: number, message: ChatMessage): string {
     return `${index}-${message.content.length}-${new Date(message.timestamp).getTime()}`;

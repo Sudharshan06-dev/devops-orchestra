@@ -17,19 +17,23 @@ class DeterministicRepoAnalyzer:
         
         # Detect if this is a monorepo
         services = self._detect_services()
-        
+    
         if len(services) > 1:
-            # Monorepo - return all services
+            # Monorepo - find primary (backend service)
+            backend_service = next((s for s in services if s['type'] == 'backend'), services[0])
+            
             return {
                 'repo_type': 'monorepo',
                 'services': services,
-                'primary_service': services[0],  # First one as primary
+                'primary_service': backend_service,
             }
+            
         elif len(services) == 1:
-            # Single service - flatten structure
+            # Single service
             service = services[0]
             return {
                 'repo_type': 'single',
+                'primary_service': service,
                 'tech_stack': service['tech_stack'],
                 'build_system': service['build_system'],
                 'server_config': service['server_config'],
@@ -38,10 +42,11 @@ class DeterministicRepoAnalyzer:
                 'entry_points': service['entry_points'],
             }
         else:
-            # No services found - unknown
+            # No services found
             return {
                 'repo_type': 'unknown',
                 'tech_stack': {'runtime': 'unknown', 'frameworks': []},
+                'primary_service': None,
             }
         
     def _detect_services(self) -> List[Dict]:
