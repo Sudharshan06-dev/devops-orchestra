@@ -10,6 +10,8 @@ from agents.langchain_tools import create_tools
 from agents.chat_agent import stream_assistant_reply
 from agents.repo_analyzer import GitHubRepoAnalyzer
 from agents.deployment_agent import deployment_generator
+import asyncio
+
 
 load_dotenv()
 
@@ -162,9 +164,7 @@ class AgenticSupervisor:
         """Process with agent (may fail, has fallback)"""
         yield "🤖 Agent is thinking...\n\n"
         
-        try:
-            import asyncio
-            
+        try:            
             task = asyncio.create_task(
                 self.agent_executor.ainvoke({
                     "input": user_input,

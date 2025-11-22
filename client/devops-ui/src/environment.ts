@@ -10,6 +10,8 @@ export const AUTH_SSO_PATH: string = 'http://localhost:8000/';
 
 export const CHAT_API_ROUTE: string = 'http://localhost:8000/chat';
 
+export const DEPLOYMENTS_API_ROUTE: string = 'http://localhost:8000/deployments';
+
 export const AUTH_API_ROUTE: string = 'http://localhost:8000/auth';
 
 export const TOAST_CONFIGURATION = {

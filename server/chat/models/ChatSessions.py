@@ -1,5 +1,5 @@
 import json
-from chat.dynamo_instance import DynamoDBConnection
+from config.dynamo_instance import DynamoDBConnection
 
 chat_sessions_model = DynamoDBConnection.get_instance().get_table('chat-sessions')
 

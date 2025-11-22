@@ -17,3 +17,4 @@ langchain
 langchain-core 
 langchain-community 
 aiohttp
+aiocache

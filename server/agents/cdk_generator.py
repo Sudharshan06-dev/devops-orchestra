@@ -452,4 +452,4 @@ constructs>=10.0.0,<11.0.0
     
     def _get_cdk_json(self) -> str:
         """Return cdk.json"""
-        return json.dumps({"app": "python3 app.py"}, indent=2)
+        return json.dumps({"app": "python3 app.py", "context": {"@aws-cdk/core:newStyleStackSynthesis": True}}, indent=2)

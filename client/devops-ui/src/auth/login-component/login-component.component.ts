@@ -48,6 +48,7 @@ export class LoginComponentComponent implements OnInit {
         const decoded: any = jwtDecode(params['token']);
         const userDetails = {
           email: decoded.sub,
+          user_id: decoded.user_id,
           firstname: decoded.firstname,
           lastname: decoded.lastname
         };

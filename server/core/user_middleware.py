@@ -5,8 +5,14 @@ from core.context_vars import user_id_ctx, access_token_ctx
 import os
 import jwt
 
+BYPASS_URL = ['deployments/update-deployment']
+
 
 async def user_middleware(request: Request, call_next):
+    
+    #Check the bypass url if the url exists then authentication is bypassed
+    if request.url.path in BYPASS_URL:
+        return await call_next(request)
 
     auth_header = request.headers.get('Authorization')
 

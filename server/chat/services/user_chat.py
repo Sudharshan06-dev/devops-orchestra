@@ -1,15 +1,15 @@
-from fastapi import Depends, HTTPException, UploadFile, File, Form
+from fastapi import Depends, HTTPException, UploadFile, File, Form, Request
 from pathlib import Path
 from sqlalchemy.orm import Session
 from config.database import get_db_connection
 from fastapi.responses import StreamingResponse
-from chat import chat_router
+from chat.services import chat_router
 from chat.schemas.user_chat_schema import UserChatRequest, UserChatResponse
 from chat.models.UserChatCount import UserChatCountModel
 from core.utility import create_response
 from agents.chat_agent import stream_assistant_reply
 from uuid import uuid4
-from chat.dynamo_instance import DynamoDBConnection
+from config.dynamo_instance import DynamoDBConnection
 from core.context_vars import user_id_ctx
 from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key, Attr
@@ -17,6 +17,8 @@ import logging
 from typing import Optional
 from agents.supervisor_runner import route_to_agent
 from collections import defaultdict
+from typing import Dict
+from chat.models.DeploymentManager import DeploymentManager
 
 
 logger = logging.getLogger(__name__)

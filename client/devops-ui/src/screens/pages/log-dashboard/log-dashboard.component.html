@@ -1,1 +1,353 @@
-<p>log-dashboard works!</p>
+<div class="dashboard-wrapper">
+  <!-- Header -->
+  <div class="dashboard-header">
+    <h1>DevOps Orchestra</h1>
+    <p>Monitor and manage your deployments in real-time</p>
+  </div>
+
+  <!-- No Deployments State -->
+  <div *ngIf="!deployments || deployments.length === 0" class="no-deployments">
+    <h3>No Deployments Yet</h3>
+    <p>Start by deploying your first application to see it appear here</p>
+  </div>
+
+  <!-- Deployments Grid -->
+  <div *ngIf="deployments && deployments.length > 0">
+    <div class="deployments-container">
+      <div *ngFor="let deployment of deployments" class="deployment-card"
+        [class.selected]="selectedDeployment?.deployment_id === deployment.deployment_id"
+        (click)="selectDeployment(deployment)">
+
+        <!-- Card Header -->
+        <div class="card-header">
+          <div class="card-title">
+            <h3>{{ deployment.app_name }}</h3>
+            <p>{{ deployment.ecs_service_name || 'Service' }}</p>
+          </div>
+          <span class="status-badge" [ngClass]="deployment.status">
+            <span class="status-dot"></span>
+            {{ deployment.status }}
+          </span>
+        </div>
+
+        <!-- Health Status -->
+        <div class="health-status">
+          <span class="health-icon" [ngClass]="'health-' + (deployment.health_status || 'unknown')"></span>
+          <span>{{ (deployment.health_status || 'unknown') | uppercase }}</span>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="quick-stats">
+          <div class="stat-item">
+            <div class="stat-label">Requests</div>
+            <span class="stat-value">{{ deployment.metrics?.requests_per_minute | number:'1.0-0'}}</span>
+            <span class="stat-unit">/min</span>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Success</div>
+            <span class="stat-value">{{ deployment.metrics?.success_rate | number:"1.0-0"}}</span>
+            <span class="stat-unit">%</span>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Response</div>
+            <span class="stat-value">{{ deployment.metrics?.avg_response_time_ms | number:'1.0-0'}}</span>
+            <span class="stat-unit">ms</span>
+          </div>
+        </div>
+
+        <!-- Card Footer -->
+        <div class="card-footer">
+          <span class="card-timestamp">
+            {{ deployment.created_at | date:'short' }}
+          </span>
+          <div class="card-actions">
+            <button class="card-action-btn" title="Visit App" *ngIf="deployment.alb_dns"
+              (click)="visitApp(deployment); $event.stopPropagation()">
+              🔗
+            </button>
+            <button class="card-action-btn" title="Refresh"
+              (click)="refreshMetrics(deployment); $event.stopPropagation()">
+              🔄
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Details Panel (Detailed Metrics for Selected Deployment) -->
+    <div *ngIf="selectedDeployment" class="details-panel">
+      <!-- Header -->
+      <div class="details-header">
+        <div class="details-title">
+          <h2>{{ selectedDeployment.app_name }}</h2>
+          <p>{{ selectedDeployment.ecs_cluster_name }} / {{ selectedDeployment.ecs_service_name }}</p>
+        </div>
+        <div class="action-buttons">
+          <button class="btn-action btn-primary-action" *ngIf="selectedDeployment.alb_dns"
+            (click)="visitApp(selectedDeployment)">
+            🌐 Visit App
+          </button>
+          <button class="btn-action btn-secondary-action" (click)="refreshMetrics(selectedDeployment)">
+            🔄 Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs-navigation">
+        <button class="tab-button" [class.active]="activeTab === 'overview'" (click)="activeTab = 'overview'">
+          📊 Overview
+        </button>
+        <button class="tab-button" [class.active]="activeTab === 'metrics'" (click)="activeTab = 'metrics'">
+          📈 Metrics
+        </button>
+        <button class="tab-button" [class.active]="activeTab === 'logs'" (click)="activeTab = 'logs'">
+          📋 Logs
+        </button>
+        <button class="tab-button" [class.active]="activeTab === 'health'" (click)="activeTab = 'health'">
+          ❤️ Health
+        </button>
+      </div>
+
+      <!-- Tab: Overview -->
+      <div *ngIf="activeTab === 'overview'" class="tab-content">
+        <div class="metrics-grid">
+          <!-- Requests Per Minute -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Requests / Minute</span>
+              <div class="metric-icon orange">📊</div>
+            </div>
+            <div class="metric-value">{{ selectedDeployment.metrics?.requests_per_minute | number:'1.0-0' }}</div>
+            <div class="metric-change positive">↑ Last 5 min</div>
+          </div>
+
+          <!-- Success Rate -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Success Rate</span>
+              <div class="metric-icon green">✓</div>
+            </div>
+            <div class="metric-value">{{ selectedDeployment.metrics?.success_rate | number:'1.0-0' }}%</div>
+            <div class="metric-change"
+              [ngClass]="(selectedDeployment.metrics?.success_rate || 0) > 95 ? 'positive' : 'negative'">
+              {{ (selectedDeployment.metrics?.success_rate || 0) > 95 ? '✓ HEALTHY' : '⚠ Check logs' }}
+            </div>
+          </div>
+
+          <!-- Avg Response Time -->
+          <div class="metric-card">
+            <div class="metric-header">
+              <span class="metric-title">Avg Response Time</span>
+              <div class="metric-icon blue">⚡</div>
+            </div>
+            <div class="metric-value">{{ selectedDeployment.metrics?.avg_response_time_ms | number:'1.0-0' }}<span
+                style="font-size: 16px;">ms</span></div>
+            <div class="metric-change"
+              [ngClass]="(selectedDeployment.metrics?.avg_response_time_ms || 0) < 500 ? 'positive' : 'negative'">
+              {{ (selectedDeployment.metrics?.avg_response_time_ms || 0) < 500 ? '⚡ Fast' : '⚠ Slow' }} </div>
+            </div>
+
+            <!-- Error Rate -->
+            <div class="metric-card">
+              <div class="metric-header">
+                <span class="metric-title">Error Rate</span>
+                <div class="metric-icon orange">⚠️</div>
+              </div>
+              <div class="metric-value">{{ selectedDeployment.metrics?.error_rate | number:'1.0-0' }}%</div>
+              <div class="metric-change"
+                [ngClass]="(selectedDeployment.metrics?.error_rate || 0) < 5 ? 'positive' : 'negative'">
+                {{ (selectedDeployment.metrics?.error_rate || 0) < 5 ? '✓ Low' : '⚠ High' }} </div>
+              </div>
+
+              <!-- Status: Deployed -->
+              <div class="metric-card">
+                <div class="metric-header">
+                  <span class="metric-title">Status</span>
+                  <div class="metric-icon purple">●</div>
+                </div>
+                <div class="metric-value" style="text-transform: capitalize;">{{ selectedDeployment.status }}</div>
+                <div class="metric-change positive">✓ Active</div>
+              </div>
+
+              <!-- Health Status -->
+              <div class="metric-card">
+                <div class="metric-header">
+                  <span class="metric-title">Health</span>
+                  <div class="metric-icon green">❤️</div>
+                </div>
+                <div class="metric-value" style="text-transform: capitalize;">{{ selectedDeployment.health_status | uppercase}}
+                </div>
+                <div class="metric-change positive">Monitoring...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: Metrics Charts -->
+          <div *ngIf="activeTab === 'metrics'" class="tab-content">
+            <div class="charts-grid">
+              <!-- Request Rate Chart -->
+              <div class="chart-card">
+                <h4 class="chart-title">Requests Per Minute</h4>
+                <div class="chart-container">
+                  <canvas baseChart chartType="line" [data]="requestRateChartData" [options]="chartOptions">
+                  </canvas>
+                </div>
+              </div>
+
+              <!-- Response Time Chart -->
+              <div class="chart-card">
+                <h4 class="chart-title">Response Time (ms)</h4>
+                <div class="chart-container">
+                  <canvas baseChart chartType="line" [data]="responseTimeChartData" [options]="chartOptions">
+                  </canvas>
+                </div>
+              </div>
+
+              <!-- Error Rate Chart -->
+              <div class="chart-card">
+                <h4 class="chart-title">Error Rate (%)</h4>
+                <div class="chart-container">
+                  <canvas baseChart chartType="line" [data]="errorRateChartData" [options]="chartOptions">
+                  </canvas>
+                </div>
+              </div>
+
+              <!-- Status Code Distribution -->
+              <div class="chart-card">
+                <h4 class="chart-title">Status Code Distribution</h4>
+                <div class="chart-container">
+                  <canvas baseChart chartType="doughnut" [data]="statusCodeChartData" [options]="pieChartOptions">
+                  </canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: Logs -->
+          <div *ngIf="activeTab === 'logs'" class="tab-content">
+            <div class="logs-container">
+              <!-- Header -->
+              <div class="logs-header">
+                <h4>Application Logs</h4>
+                <div class="logs-controls">
+                  <button class="log-filter-btn" (click)="logFilter = 'all'" [class.active]="logFilter === 'all'">
+                    All
+                  </button>
+                  <button class="log-filter-btn" (click)="logFilter = 'error'" [class.active]="logFilter === 'error'">
+                    🔴 Errors
+                  </button>
+                  <button class="log-filter-btn" (click)="logFilter = 'warn'" [class.active]="logFilter === 'warn'">
+                    🟡 Warnings
+                  </button>
+                </div>
+              </div>
+
+              <!-- Logs Stream -->
+              <div class="logs-stream">
+                <div *ngIf="getFilteredLogs().length === 0" class="no-logs">
+                  No logs available
+                </div>
+
+                <!-- Table Header -->
+                <div class="log-entry log-header" *ngIf="getFilteredLogs().length > 0">
+                  <span class="log-timestamp">Timestamp</span>
+                  <span class="log-status">Status</span>
+                  <span class="log-duration">Duration</span>
+                  <span class="log-ip">IP Address</span>
+                  <span class="log-message">Message</span>
+                </div>
+
+                <!-- Log Rows -->
+                <div *ngFor="let log of getFilteredLogs()" class="log-entry"
+                  [ngClass]="'log-level-' + (log.level || 'info')">
+
+                  <span class="log-timestamp">
+                    {{ log.timestamp | date:'HH:mm:ss' }}
+                  </span>
+
+                  <span class="log-status" [ngClass]="'status-' + log?.status_code">
+                    <span class="status-badge">
+                      {{ log?.status_code || '-' }}
+                    </span>
+                  </span>
+
+                  <span class="log-duration">
+                    {{ log.duration_ms ? log.duration_ms + 'ms' : '-' }}
+                  </span>
+
+                  <span class="log-ip">
+                    {{ log.client_ip }}
+                  </span>
+
+                  <span class="log-message">
+                    {{ log.message }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab: Health -->
+          <div *ngIf="activeTab === 'health'" class="tab-content">
+            <!-- Health Grid -->
+            <div class="health-grid">
+              <div class="health-card">
+                <div class="health-label">ECS Desired Tasks</div>
+                <div class="health-value">{{ selectedDeployment.metrics?.ecs_health?.desired_count || 0 }}</div>
+              </div>
+              <div class="health-card">
+                <div class="health-label">ECS Running Tasks</div>
+                <div class="health-value">{{ selectedDeployment.metrics?.ecs_health?.running_count || 0 }}</div>
+              </div>
+              <div class="health-card">
+                <div class="health-label">Overall Health</div>
+                <div class="health-value" style="color: var(--accent-green);">
+                  {{ selectedDeployment.health_status | uppercase }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Health Details -->
+            <div class="health-card">
+              <h4 style="margin-bottom: 16px; color: var(--text-primary);">Service Details</h4>
+              <div class="health-status-line">
+                <span class="health-status-label">Deployment Status:</span>
+                <span class="health-status-value">{{ selectedDeployment.metrics?.ecs_health?.deployment_status ||
+                  'Unknown' }}</span>
+              </div>
+              <div class="health-status-line">
+                <span class="health-status-label">Cluster Name:</span>
+                <span class="health-status-value">{{ selectedDeployment.ecs_cluster_name }}</span>
+              </div>
+              <div class="health-status-line">
+                <span class="health-status-label">Service Name:</span>
+                <span class="health-status-value">{{ selectedDeployment.ecs_service_name }}</span>
+              </div>
+              <div class="health-status-line">
+                <span class="health-status-label">Image URI:</span>
+                <span class="health-status-value" style="font-size: 11px; word-break: break-all;">{{
+                  selectedDeployment.ecr_image_uri }}</span>
+              </div>
+              <div class="health-status-line">
+                <span class="health-status-label">Created At:</span>
+                <span class="health-status-value">{{ selectedDeployment.created_at | date:'medium' }}</span>
+              </div>
+              <div class="health-status-line">
+                <span class="health-status-label">Last Updated:</span>
+                <span class="health-status-value">{{ selectedDeployment.updated_at | date:'medium' }}</span>
+              </div>
+            </div>
+
+            <!-- Error Summary -->
+            <div *ngIf="selectedDeployment.metrics?.top_errors" class="errors-section" style="margin-top: 20px;">
+              <h4>Top Errors</h4>
+              <div *ngFor="let error of selectedDeployment.metrics.top_errors" class="error-item">
+                <span class="error-name">{{ error.error }}</span>
+                <span class="error-badge">{{ error.count }} occurrences</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>

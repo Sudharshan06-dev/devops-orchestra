@@ -127,6 +127,7 @@ async def login_user(user_credentials: UserLoginRequest, db: Session = Depends(g
         
         access_token = create_access_token(data={
             "sub": user_data.email,
+            "user_id": user_data.user_id,
             "firstname": user_data.firstname,
             "lastname": user_data.lastname
         })

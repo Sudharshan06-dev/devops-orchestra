@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path
 from chat.models.ChatSessions import update_session_field
-from chat.dynamo_instance import DynamoDBConnection
+from config.dynamo_instance import DynamoDBConnection
 from typing import Dict, List
 from .cdk_generator import CDKGenerator
 from .docker_templates import generate_dockerfile_from_analysis
@@ -99,9 +99,16 @@ async def deployment_generator(repo_data: dict = None, chat_id: str = "default",
         yield f"- cdk/requirements.txt\n"
         yield f"- cdk/cdk.json\n\n"
         yield f"**Next Steps:**\n"
-        yield f"1. Download the files\n"
-        yield f"2. Run: `./build-and-push.sh`\n"
+        yield f"1. Download the files to your repo root\n"
+        yield f"2. Run the deployment with:\n"
+        yield f"```bash\n"
+        yield f"CHAT_ID={chat_id} \\\n"
+        yield f"USER_ID={user_id} \\\n"
+        yield f"API_URL=http://your-api-server:8000 \\\n"
+        yield f"bash build-and-push.sh\n"
+        yield f"```\n"
         yield f"3. Your app will be live on AWS ECS!\n"
+        yield f"4. Check your dashboard to see deployment\n"
         
     except Exception as e:
         yield f"\n❌ **Generation Failed:** {str(e)}\n"
@@ -129,10 +136,12 @@ async def _generate_deployment_in_background(job_id: str, repo_data: dict, chat_
             if line and '=' in line and not line.strip().startswith('#'):
                 k, v = line.split('=', 1)
                 env_vars[k.strip()] = v.strip()
+                
+    app_name = repo_data.get('repo', 'MonoApp')
     
     try:
         if repo_type == 'monorepo':
-            await _generate_monorepo_deployment(analysis, output_dir, env_vars, chat_id, job_id)
+            await _generate_monorepo_deployment(app_name, analysis, output_dir, env_vars, chat_id, job_id)
         else:
             await _generate_single_service_deployment(analysis, output_dir, env_vars, chat_id, job_id)
         
@@ -158,53 +167,177 @@ def _generate_build_script(output_dir: Path):
     script = '''#!/bin/bash
 set -e
 
-AWS_REGION=${AWS_REGION:-us-east-1}
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ECR_REPO="sysconnect-app"
-IMAGE_NAME="app"
-IMAGE_TAG="latest"
+cd "$(dirname "$0")/.."
 
-echo "🐳 Building and pushing Docker image to ECR..."
+echo "🚀 Deploying to AWS..."
+
+# Set region explicitly
+export AWS_REGION=us-east-2
+
+# Validate AWS credentials
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || {
+    echo "❌ AWS credentials not configured"
+    echo "Run: aws configure"
+    exit 1
+}
+
+AWS_REGION=${AWS_REGION:-us-east-2}
+ECR_REPO=${ECR_REPO:-portfolio}
+
+echo "📍 AWS Account: $AWS_ACCOUNT_ID"
 echo "📍 Region: $AWS_REGION"
-echo "📍 Account: $AWS_ACCOUNT_ID"
+echo "📍 ECR Repo: $ECR_REPO"
+echo ""
 
-aws ecr describe-repositories \\
-  --repository-names $ECR_REPO \\
-  --region $AWS_REGION 2>/dev/null || \\
-aws ecr create-repository \\
-  --repository-name $ECR_REPO \\
+# Create ECR repo (skip if exists)
+echo "🔧 Creating ECR repository..."
+aws ecr describe-repositories \
+  --repository-names $ECR_REPO \
+  --region $AWS_REGION 2>/dev/null || \
+aws ecr create-repository \
+  --repository-name $ECR_REPO \
   --region $AWS_REGION
 
-aws ecr get-login-password --region $AWS_REGION | \\
+# Login to ECR
+echo "🔐 Logging in to ECR..."
+aws ecr get-login-password --region $AWS_REGION | \
   docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-echo "🔨 Building Docker image..."
-docker build -t $IMAGE_NAME:$IMAGE_TAG .
+# Build Docker with amd64 platform
+echo "🔨 Building Docker image (amd64)..."
+docker build --platform linux/amd64 \
+    -t $ECR_REPO:latest \
+    -f ./client/Dockerfile \
+    ./client
 
-docker tag $IMAGE_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+# Tag for ECR
+docker tag $ECR_REPO:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
 
+# Push to ECR
 echo "📤 Pushing to ECR..."
-docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG
+docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
 
-echo "✅ Image pushed successfully!"
+echo "✅ Image deployed to ECR!"
+IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest"
+echo "🌐 Image URI: $IMAGE_URI"
 
-read -p "Deploy to AWS? (y/n) " -n 1 -r
+# Deploy CDK
+read -p "\nDeploy infrastructure to AWS? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-  cd cdk
-  cdk deploy --require-approval=never
-  cd ..
-  echo "🚀 Deployment complete!"
+    echo "⚙️  Setting up CDK environment..."
+    cd client/cdk
+    
+    if [ ! -d ".venv" ]; then
+        echo "📦 Creating Python virtual environment..."
+        python3 -m venv .venv
+    fi
+    
+    source .venv/bin/activate
+    
+    echo "📥 Installing CDK dependencies..."
+    pip install -q -r requirements.txt
+    
+    echo "🔧 Bootstrapping CDK..."
+    npx aws-cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_REGION
+    
+    echo "🚀 Deploying CDK stack..."
+    CDK_OUTPUT=$(npx aws-cdk deploy --require-approval=never --region $AWS_REGION 2>&1)
+    
+    cd ../..
+    echo "✅ Infrastructure deployed!"
+    
+    # Extract ALB DNS from CDK output
+    ALB_DNS=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ALBDNSName = ).*' | head -1)
+    LOG_GROUP=$(echo "$CDK_OUTPUT" | grep -oP '(?<=LogGroupName = ).*' | head -1)
+    SERVICE_NAME=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ServiceName = ).*' | head -1)
+    CLUSTER_NAME=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ClusterName = ).*' | head -1)
+    
+    # Extract from environment variables if not found in output
+    if [ -z "$ALB_DNS" ]; then
+        ALB_DNS=$(aws elbv2 describe-load-balancers \
+          --query "LoadBalancers[0].DNSName" \
+          --output text \
+          --region $AWS_REGION)
+    fi
+    
+    if [ -z "$LOG_GROUP" ]; then
+        LOG_GROUP="/ecs/$ECR_REPO"
+    fi
+    
+    if [ -z "$SERVICE_NAME" ]; then
+        SERVICE_NAME="$ECR_REPO"
+    fi
+    
+    if [ -z "$CLUSTER_NAME" ]; then
+        CLUSTER_NAME="Cluster"
+    fi
+    
+    echo ""
+    echo "🎉 CDK Deployment Complete!"
+    echo "🌐 App URL: http://$ALB_DNS"
+    echo "📊 Log Group: $LOG_GROUP"
+    echo ""
+    
+    # ===== CRITICAL: Update deployment record in database =====
+    
+    echo "📝 Registering deployment..."
+    
+    # Read credentials from environment or request parameters
+    CHAT_ID=${CHAT_ID:-"default"}
+    USER_ID=${USER_ID:-""}
+    API_URL=${API_URL:-"http://localhost:8000"}
+    
+    # Prepare deployment data
+    DEPLOYMENT_PAYLOAD=$(cat <<EOF
+{
+    "chat_id": "$CHAT_ID",
+    "user_id": "$USER_ID",
+    "app_name": "$ECR_REPO",
+    "alb_dns": "$ALB_DNS",
+    "alb_arn": "arn:aws:elasticloadbalancing:$AWS_REGION:$AWS_ACCOUNT_ID:loadbalancer/app/*",
+    "app_url": "http://$ALB_DNS",
+    "ecs_cluster_name": "$CLUSTER_NAME",
+    "ecs_service_name": "$SERVICE_NAME",
+    "ecr_image_uri": "$IMAGE_URI",
+    "log_group_name": "$LOG_GROUP",
+    "status": "live",
+    "deployment_status_reason": "Successfully deployed via CDK"
+}
+EOF
+)
+    
+    # Call deployment API endpoint (bypasses middleware)
+    RESPONSE=$(curl -s -X POST "$API_URL/deployments/update-deployment" \
+        -H "Content-Type: application/json" \
+        -d "$DEPLOYMENT_PAYLOAD")
+    
+    # Check response
+    DEPLOYMENT_STATUS=$(echo $RESPONSE | grep -o '"status":[0-9]*' | grep -o '[0-9]*')
+    
+    if [ "$DEPLOYMENT_STATUS" = "200" ]; then
+        echo "✅ Deployment registered in dashboard!"
+        DEPLOYMENT_ID=$(echo $RESPONSE | grep -o '"deployment_id":"[^"]*' | cut -d'"' -f4)
+        echo "📋 Deployment ID: $DEPLOYMENT_ID"
+    else
+        echo "⚠️  Warning: Could not register deployment"
+        echo "Response: $RESPONSE"
+        echo "Make sure API_URL is set: export API_URL=http://localhost:8000"
+    fi
+    
+    echo ""
+    echo "🚀 All done! Your app is live!"
+    
 fi
 '''
     
-    script_path = output_dir / "build-and-push.sh"
+    script_path = output_dir / "deploy.sh"
     script_path.write_text(script)
     script_path.chmod(0o755)  # Make executable
     print(f"✅ Generated build-and-push.sh")
 
 
-async def _generate_monorepo_deployment(analysis: Dict, output_dir: Path, env_vars: Dict, chat_id: str, job_id: str):
+async def _generate_monorepo_deployment(app_name: str, analysis: Dict, output_dir: Path, env_vars: Dict, chat_id: str, job_id: str):
     """Generate deployment for monorepo"""
     services = analysis.get('services', [])
     print(f"📦 Generating monorepo deployment for {len(services)} services")
@@ -257,9 +390,13 @@ async def _generate_monorepo_deployment(analysis: Dict, output_dir: Path, env_va
             raise
     
     print("📝 Generating multi-service CDK infrastructure...")
+    
+    placeholder_ecr_uri = f"{{AWS_ACCOUNT_ID}}.dkr.ecr.{{AWS_REGION}}.amazonaws.com/{app_name}:latest"
+
     cdk_files = cdk_generator.generate_monorepo_cdk(
         chat_id=chat_id,
         services=service_configs,
+        ecr_image_uris=placeholder_ecr_uri,
         env_vars=env_vars
     )
     
@@ -327,6 +464,7 @@ async def _generate_single_service_deployment(analysis: Dict, output_dir: Path, 
     
     port = primary.get('server_config', {}).get('port', 8000)
     service_type = primary.get('type', 'backend')
+    app_name = primary.get('name', 'app')
     
     service_config = {
         'name': primary.get('name', 'app'),
@@ -341,9 +479,14 @@ async def _generate_single_service_deployment(analysis: Dict, output_dir: Path, 
     }
     
     print("📝 Generating CDK infrastructure...")
+    
+    placeholder_ecr_uri = f"{{AWS_ACCOUNT_ID}}.dkr.ecr.{{AWS_REGION}}.amazonaws.com/{app_name}:latest"
+
+
     cdk_files = cdk_generator.generate_single_service_cdk(
         chat_id=chat_id,
         service=service_config,
+        ecr_image_uri=placeholder_ecr_uri,
         env_vars=env_vars
     )
     
