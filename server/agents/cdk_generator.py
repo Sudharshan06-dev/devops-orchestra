@@ -30,7 +30,7 @@ class CDKGenerator:
         self,
         chat_id: str,
         services: List[Dict],
-        ecr_image_uris: Dict[str, str],
+        ecr_image_uris: Dict,
         env_vars: Optional[Dict] = None
     ) -> Dict[str, str]:
         """Generate CDK stack for monorepo with multiple services"""
@@ -251,7 +251,7 @@ class InfrastructureStack(Stack):
     def _get_monorepo_infrastructure_stack(
         self,
         services: List[Dict],
-        ecr_image_uris: Dict[str, str],
+        ecr_image_uris: Dict,
         env_vars: Dict
     ) -> str:
         """Generate infrastructure stack for monorepo"""

@@ -40,17 +40,17 @@
         <div class="quick-stats">
           <div class="stat-item">
             <div class="stat-label">Requests</div>
-            <span class="stat-value">{{ deployment.metrics?.requests_per_minute | number:'1.0-0'}}</span>
+            <span class="stat-value">{{ deployment.metrics.requests_per_minute | number:'1.0-0'}}</span>
             <span class="stat-unit">/min</span>
           </div>
           <div class="stat-item">
             <div class="stat-label">Success</div>
-            <span class="stat-value">{{ deployment.metrics?.success_rate | number:"1.0-0"}}</span>
+            <span class="stat-value">{{ deployment.metrics.success_rate | number:"1.0-0"}}</span>
             <span class="stat-unit">%</span>
           </div>
           <div class="stat-item">
             <div class="stat-label">Response</div>
-            <span class="stat-value">{{ deployment.metrics?.avg_response_time_ms | number:'1.0-0'}}</span>
+            <span class="stat-value">{{ deployment.metrics.avg_response_time_ms | number:'1.0-0'}}</span>
             <span class="stat-unit">ms</span>
           </div>
         </div>
@@ -118,7 +118,7 @@
               <span class="metric-title">Requests / Minute</span>
               <div class="metric-icon orange">📊</div>
             </div>
-            <div class="metric-value">{{ selectedDeployment.metrics?.requests_per_minute | number:'1.0-0' }}</div>
+            <div class="metric-value">{{ selectedDeployment.metrics.requests_per_minute | number:'1.0-0' }}</div>
             <div class="metric-change positive">↑ Last 5 min</div>
           </div>
 
@@ -128,10 +128,10 @@
               <span class="metric-title">Success Rate</span>
               <div class="metric-icon green">✓</div>
             </div>
-            <div class="metric-value">{{ selectedDeployment.metrics?.success_rate | number:'1.0-0' }}%</div>
+            <div class="metric-value">{{ selectedDeployment.metrics.success_rate | number:'1.0-0' }}%</div>
             <div class="metric-change"
-              [ngClass]="(selectedDeployment.metrics?.success_rate || 0) > 95 ? 'positive' : 'negative'">
-              {{ (selectedDeployment.metrics?.success_rate || 0) > 95 ? '✓ HEALTHY' : '⚠ Check logs' }}
+              [ngClass]="(selectedDeployment.metrics.success_rate || 0) > 95 ? 'positive' : 'negative'">
+              {{ (selectedDeployment.metrics.success_rate || 0) > 95 ? '✓ HEALTHY' : '⚠ Check logs' }}
             </div>
           </div>
 
@@ -141,11 +141,11 @@
               <span class="metric-title">Avg Response Time</span>
               <div class="metric-icon blue">⚡</div>
             </div>
-            <div class="metric-value">{{ selectedDeployment.metrics?.avg_response_time_ms | number:'1.0-0' }}<span
+            <div class="metric-value">{{ selectedDeployment.metrics.avg_response_time_ms | number:'1.0-0' }}<span
                 style="font-size: 16px;">ms</span></div>
             <div class="metric-change"
-              [ngClass]="(selectedDeployment.metrics?.avg_response_time_ms || 0) < 500 ? 'positive' : 'negative'">
-              {{ (selectedDeployment.metrics?.avg_response_time_ms || 0) < 500 ? '⚡ Fast' : '⚠ Slow' }} </div>
+              [ngClass]="(selectedDeployment.metrics.avg_response_time_ms || 0) < 500 ? 'positive' : 'negative'">
+              {{ (selectedDeployment.metrics.avg_response_time_ms || 0) < 500 ? '⚡ Fast' : '⚠ Slow' }} </div>
             </div>
 
             <!-- Error Rate -->
@@ -154,10 +154,10 @@
                 <span class="metric-title">Error Rate</span>
                 <div class="metric-icon orange">⚠️</div>
               </div>
-              <div class="metric-value">{{ selectedDeployment.metrics?.error_rate | number:'1.0-0' }}%</div>
+              <div class="metric-value">{{ selectedDeployment.metrics.error_rate | number:'1.0-0' }}%</div>
               <div class="metric-change"
-                [ngClass]="(selectedDeployment.metrics?.error_rate || 0) < 5 ? 'positive' : 'negative'">
-                {{ (selectedDeployment.metrics?.error_rate || 0) < 5 ? '✓ Low' : '⚠ High' }} </div>
+                [ngClass]="(selectedDeployment.metrics.error_rate || 0) < 5 ? 'positive' : 'negative'">
+                {{ (selectedDeployment.metrics.error_rate || 0) < 5 ? '✓ Low' : '⚠ High' }} </div>
               </div>
 
               <!-- Status: Deployed -->
@@ -266,9 +266,9 @@
                     {{ log.timestamp | date:'HH:mm:ss' }}
                   </span>
 
-                  <span class="log-status" [ngClass]="'status-' + log?.status_code">
+                  <span class="log-status" [ngClass]="'status-' + log.status_code">
                     <span class="status-badge">
-                      {{ log?.status_code || '-' }}
+                      {{ log.status_code || '-' }}
                     </span>
                   </span>
 
@@ -294,11 +294,11 @@
             <div class="health-grid">
               <div class="health-card">
                 <div class="health-label">ECS Desired Tasks</div>
-                <div class="health-value">{{ selectedDeployment.metrics?.ecs_health?.desired_count || 0 }}</div>
+                <div class="health-value">{{ selectedDeployment.metrics.ecs_health.desired_count || 0 }}</div>
               </div>
               <div class="health-card">
                 <div class="health-label">ECS Running Tasks</div>
-                <div class="health-value">{{ selectedDeployment.metrics?.ecs_health?.running_count || 0 }}</div>
+                <div class="health-value">{{ selectedDeployment.metrics.ecs_health.running_count || 0 }}</div>
               </div>
               <div class="health-card">
                 <div class="health-label">Overall Health</div>
@@ -313,7 +313,7 @@
               <h4 style="margin-bottom: 16px; color: var(--text-primary);">Service Details</h4>
               <div class="health-status-line">
                 <span class="health-status-label">Deployment Status:</span>
-                <span class="health-status-value">{{ selectedDeployment.metrics?.ecs_health?.deployment_status ||
+                <span class="health-status-value">{{ selectedDeployment.metrics.ecs_health.deployment_status ||
                   'Unknown' }}</span>
               </div>
               <div class="health-status-line">
@@ -340,7 +340,7 @@
             </div>
 
             <!-- Error Summary -->
-            <div *ngIf="selectedDeployment.metrics?.top_errors" class="errors-section" style="margin-top: 20px;">
+            <div *ngIf="selectedDeployment.metrics.top_errors" class="errors-section" style="margin-top: 20px;">
               <h4>Top Errors</h4>
               <div *ngFor="let error of selectedDeployment.metrics.top_errors" class="error-item">
                 <span class="error-name">{{ error.error }}</span>

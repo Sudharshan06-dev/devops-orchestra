@@ -164,7 +164,9 @@ async def _generate_deployment_in_background(job_id: str, repo_data: dict, chat_
 
 def _generate_build_script(output_dir: Path):
     """Generate build-and-push.sh script"""
-    script = '''#!/bin/bash
+    script = '''
+    
+#!/bin/bash
 set -e
 
 cd "$(dirname "$0")/.."
@@ -189,104 +191,279 @@ echo "📍 Region: $AWS_REGION"
 echo "📍 ECR Repo: $ECR_REPO"
 echo ""
 
-# Create ECR repo (skip if exists)
-echo "🔧 Creating ECR repository..."
-aws ecr describe-repositories \
-  --repository-names $ECR_REPO \
-  --region $AWS_REGION 2>/dev/null || \
-aws ecr create-repository \
-  --repository-name $ECR_REPO \
-  --region $AWS_REGION
+# ===== DETECT MONOREPO vs SINGLE SERVICE =====
+echo "🔍 Detecting deployment structure..."
 
-# Login to ECR
-echo "🔐 Logging in to ECR..."
-aws ecr get-login-password --region $AWS_REGION | \
-  docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+# Check if this is a monorepo (multiple Dockerfile.* files in root)
+DOCKERFILES=$(find . -maxdepth 1 -name "Dockerfile.*" -type f | sort)
+DOCKERFILE_COUNT=$(echo "$DOCKERFILES" | grep -c . || true)
 
-# Build Docker with amd64 platform
-echo "🔨 Building Docker image (amd64)..."
-docker build --platform linux/amd64 \
-    -t $ECR_REPO:latest \
-    -f ./client/Dockerfile \
-    ./client
+if [ $DOCKERFILE_COUNT -gt 1 ]; then
+    echo "📦 Monorepo detected! Found $DOCKERFILE_COUNT services"
+    IS_MONOREPO=true
+else
+    echo "📦 Single service detected"
+    IS_MONOREPO=false
+    # For single service, check if Dockerfile exists
+    if [ -f "Dockerfile" ]; then
+        DOCKERFILES="./Dockerfile"
+    elif [ -f "client/Dockerfile" ]; then
+        DOCKERFILES="./client/Dockerfile"
+    else
+        echo "❌ No Dockerfile found!"
+        exit 1
+    fi
+fi
 
-# Tag for ECR
-docker tag $ECR_REPO:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
+# ===== BUILD AND PUSH DOCKER IMAGES =====
 
-# Push to ECR
-echo "📤 Pushing to ECR..."
-docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest
+declare -A IMAGE_URIS
+declare -a SERVICE_NAMES
+declare -a SERVICE_PORTS
 
-echo "✅ Image deployed to ECR!"
-IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest"
-echo "🌐 Image URI: $IMAGE_URI"
+if [ "$IS_MONOREPO" = true ]; then
+    # Monorepo: build each Dockerfile.<service>
+    echo ""
+    echo "🔨 Building monorepo services..."
+    
+    while IFS= read -r dockerfile; do
+        # Extract service name from Dockerfile.server -> server
+        service_name=$(basename "$dockerfile" | sed 's/Dockerfile\.//')
+        
+        # Determine build context
+        if [ -d "$service_name" ]; then
+            build_context="$service_name"
+        else
+            build_context="."
+        fi
+        
+        # Determine port (read from service config if available)
+        service_port="8000"
+        if [ -f "deployment.config.json" ]; then
+            service_port=$(grep -A5 "\"$service_name\"" deployment.config.json | grep "\"port\"" | grep -o '[0-9]*' | head -1 || echo "8000")
+        fi
+        
+        echo ""
+        echo "📦 Service: $service_name"
+        echo "   📁 Context: $build_context"
+        echo "   📄 Dockerfile: $dockerfile"
+        echo "   🔌 Port: $service_port"
+        
+        # Create ECR repo if needed
+        SERVICE_ECR_REPO="${ECR_REPO}-${service_name}"
+        echo "🔧 Ensuring ECR repository exists: $SERVICE_ECR_REPO"
+        aws ecr describe-repositories \
+            --repository-names $SERVICE_ECR_REPO \
+            --region $AWS_REGION 2>/dev/null || \
+        aws ecr create-repository \
+            --repository-name $SERVICE_ECR_REPO \
+            --region $AWS_REGION >/dev/null
+        
+        # Build Docker image with amd64 platform
+        echo "🔨 Building Docker image for $service_name (amd64)..."
+        docker build --platform linux/amd64 \
+            -t ${SERVICE_ECR_REPO}:latest \
+            -f "$dockerfile" \
+            "$build_context"
+        
+        # Tag for ECR
+        IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${SERVICE_ECR_REPO}:latest"
+        docker tag ${SERVICE_ECR_REPO}:latest "$IMAGE_URI"
+        
+        # Push to ECR
+        echo "📤 Pushing $service_name to ECR..."
+        docker push "$IMAGE_URI"
+        
+        echo "✅ $service_name image pushed: $IMAGE_URI"
+        
+        # Store for later use
+        IMAGE_URIS["$service_name"]="$IMAGE_URI"
+        SERVICE_NAMES+=("$service_name")
+        SERVICE_PORTS+=("$service_port")
+        
+    done <<< "$DOCKERFILES"
+    
+else
+    # Single service: build traditional Dockerfile
+    echo ""
+    echo "🔨 Building single service..."
+    
+    # Determine build context
+    if [ -f "client/Dockerfile" ]; then
+        dockerfile="client/Dockerfile"
+        build_context="client"
+        service_name="client"
+    else
+        dockerfile="Dockerfile"
+        build_context="."
+        service_name="app"
+    fi
+    
+    echo "📄 Dockerfile: $dockerfile"
+    echo "📁 Context: $build_context"
+    
+    # Create ECR repo
+    echo "🔧 Ensuring ECR repository exists: $ECR_REPO"
+    aws ecr describe-repositories \
+        --repository-names $ECR_REPO \
+        --region $AWS_REGION 2>/dev/null || \
+    aws ecr create-repository \
+        --repository-name $ECR_REPO \
+        --region $AWS_REGION >/dev/null
+    
+    # Login to ECR (single time for both mono and single)
+    echo "🔐 Logging in to ECR..."
+    aws ecr get-login-password --region $AWS_REGION | \
+        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+    
+    # Build Docker image
+    echo "🔨 Building Docker image (amd64)..."
+    docker build --platform linux/amd64 \
+        -t $ECR_REPO:latest \
+        -f "$dockerfile" \
+        "$build_context"
+    
+    # Tag for ECR
+    IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:latest"
+    docker tag $ECR_REPO:latest "$IMAGE_URI"
+    
+    # Push to ECR
+    echo "📤 Pushing to ECR..."
+    docker push "$IMAGE_URI"
+    
+    echo "✅ Image pushed: $IMAGE_URI"
+    
+    # Store for later use
+    IMAGE_URIS["app"]="$IMAGE_URI"
+    SERVICE_NAMES=("app")
+    SERVICE_PORTS=("8000")
+fi
 
-# Deploy CDK
-read -p "\nDeploy infrastructure to AWS? (y/n) " -n 1 -r
+# ===== LOGIN TO ECR (if monorepo) =====
+if [ "$IS_MONOREPO" = true ]; then
+    echo ""
+    echo "🔐 Logging in to ECR..."
+    aws ecr get-login-password --region $AWS_REGION | \
+        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+fi
+
+# ===== DISPLAY SUMMARY =====
+echo ""
+echo "═════════════════════════════════════════"
+echo "✅ All Docker images built and pushed!"
+echo "═════════════════════════════════════════"
+for service_name in "${SERVICE_NAMES[@]}"; do
+    echo "📦 $service_name → ${IMAGE_URIS[$service_name]}"
+done
+echo "═════════════════════════════════════════"
+echo ""
+
+# ===== DEPLOY CDK =====
+read -p "Deploy infrastructure to AWS? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "⚙️  Setting up CDK environment..."
-    cd client/cdk
+    
+    # Check if cdk folder exists in root
+    if [ -d "cdk" ]; then
+        cdk_dir="cdk"
+    else
+        # Fallback to client/cdk for single service
+        cdk_dir="client/cdk"
+    fi
+    
+    if [ ! -d "$cdk_dir" ]; then
+        echo "❌ CDK directory not found at $cdk_dir"
+        exit 1
+    fi
+    
+    cd "$cdk_dir"
     
     if [ ! -d ".venv" ]; then
         echo "📦 Creating Python virtual environment..."
         python3 -m venv .venv
     fi
     
-    source .venv/bin/activate
+    # Activate venv
+    if [ -f ".venv/bin/activate" ]; then
+        source .venv/bin/activate
+    elif [ -f ".venv/Scripts/activate" ]; then
+        source .venv/Scripts/activate
+    fi
     
     echo "📥 Installing CDK dependencies..."
-    pip install -q -r requirements.txt
+    pip install -q -r requirements.txt 2>/dev/null || pip install -q aws-cdk-lib constructs
     
     echo "🔧 Bootstrapping CDK..."
     npx aws-cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_REGION
     
+    # ===== PASS IMAGE URIS TO CDK =====
     echo "🚀 Deploying CDK stack..."
-    CDK_OUTPUT=$(npx aws-cdk deploy --require-approval=never --region $AWS_REGION 2>&1)
+    
+    # Build environment variables for CDK
+    CDK_CONTEXT=""
+    for service_name in "${SERVICE_NAMES[@]}"; do
+        image_uri="${IMAGE_URIS[$service_name]}"
+        CDK_CONTEXT="$CDK_CONTEXT -c ${service_name}ImageUri=$image_uri"
+    done
+    
+    # Run CDK with image URIs
+    CDK_OUTPUT=$(npx aws-cdk deploy \
+        --require-approval=never \
+        --region $AWS_REGION \
+        $CDK_CONTEXT 2>&1)
     
     cd ../..
     echo "✅ Infrastructure deployed!"
     
-    # Extract ALB DNS from CDK output
-    ALB_DNS=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ALBDNSName = ).*' | head -1)
-    LOG_GROUP=$(echo "$CDK_OUTPUT" | grep -oP '(?<=LogGroupName = ).*' | head -1)
-    SERVICE_NAME=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ServiceName = ).*' | head -1)
-    CLUSTER_NAME=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ClusterName = ).*' | head -1)
+    # ===== EXTRACT DEPLOYMENT INFO =====
+    echo ""
+    echo "📊 Extracting deployment information..."
     
-    # Extract from environment variables if not found in output
+    ALB_DNS=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ALBDNSName = ).*' | head -1 || echo "")
+    LOG_GROUP=$(echo "$CDK_OUTPUT" | grep -oP '(?<=LogGroupName = ).*' | head -1 || echo "/ecs/$ECR_REPO")
+    SERVICE_NAME=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ServiceName = ).*' | head -1 || echo "$ECR_REPO")
+    CLUSTER_NAME=$(echo "$CDK_OUTPUT" | grep -oP '(?<=ClusterName = ).*' | head -1 || echo "Cluster")
+    
+    # Fallback if not found in output
     if [ -z "$ALB_DNS" ]; then
+        echo "🔍 Looking up ALB DNS from AWS..."
         ALB_DNS=$(aws elbv2 describe-load-balancers \
-          --query "LoadBalancers[0].DNSName" \
-          --output text \
-          --region $AWS_REGION)
-    fi
-    
-    if [ -z "$LOG_GROUP" ]; then
-        LOG_GROUP="/ecs/$ECR_REPO"
-    fi
-    
-    if [ -z "$SERVICE_NAME" ]; then
-        SERVICE_NAME="$ECR_REPO"
-    fi
-    
-    if [ -z "$CLUSTER_NAME" ]; then
-        CLUSTER_NAME="Cluster"
+            --query "LoadBalancers[0].DNSName" \
+            --output text \
+            --region $AWS_REGION 2>/dev/null || echo "")
     fi
     
     echo ""
     echo "🎉 CDK Deployment Complete!"
-    echo "🌐 App URL: http://$ALB_DNS"
+    if [ -n "$ALB_DNS" ]; then
+        echo "🌐 App URL: http://$ALB_DNS"
+    fi
     echo "📊 Log Group: $LOG_GROUP"
     echo ""
     
-    # ===== CRITICAL: Update deployment record in database =====
+    # ===== UPDATE DEPLOYMENT RECORD =====
     
     echo "📝 Registering deployment..."
     
-    # Read credentials from environment or request parameters
     CHAT_ID=${CHAT_ID:-"default"}
     USER_ID=${USER_ID:-""}
     API_URL=${API_URL:-"http://localhost:8000"}
+    
+    # Build services array for JSON
+    SERVICES_JSON="["
+    for i in "${!SERVICE_NAMES[@]}"; do
+        service_name="${SERVICE_NAMES[$i]}"
+        image_uri="${IMAGE_URIS[$service_name]}"
+        port="${SERVICE_PORTS[$i]}"
+        
+        if [ $i -gt 0 ]; then
+            SERVICES_JSON="$SERVICES_JSON,"
+        fi
+        
+        SERVICES_JSON="$SERVICES_JSON{\"name\":\"$service_name\",\"imageUri\":\"$image_uri\",\"port\":$port}"
+    done
+    SERVICES_JSON="$SERVICES_JSON]"
     
     # Prepare deployment data
     DEPLOYMENT_PAYLOAD=$(cat <<EOF
@@ -299,34 +476,46 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     "app_url": "http://$ALB_DNS",
     "ecs_cluster_name": "$CLUSTER_NAME",
     "ecs_service_name": "$SERVICE_NAME",
-    "ecr_image_uri": "$IMAGE_URI",
+    "ecr_image_uris": $SERVICES_JSON,
     "log_group_name": "$LOG_GROUP",
+    "is_monorepo": $([[ "$IS_MONOREPO" = true ]] && echo "true" || echo "false"),
+    "service_count": ${#SERVICE_NAMES[@]},
     "status": "live",
     "deployment_status_reason": "Successfully deployed via CDK"
 }
 EOF
 )
     
-    # Call deployment API endpoint (bypasses middleware)
+    # Call deployment API endpoint
+    echo "🔗 Sending deployment info to API..."
     RESPONSE=$(curl -s -X POST "$API_URL/deployments/update-deployment" \
         -H "Content-Type: application/json" \
         -d "$DEPLOYMENT_PAYLOAD")
     
     # Check response
-    DEPLOYMENT_STATUS=$(echo $RESPONSE | grep -o '"status":[0-9]*' | grep -o '[0-9]*')
+    DEPLOYMENT_STATUS=$(echo "$RESPONSE" | grep -o '"status":[0-9]*' | grep -o '[0-9]*' || echo "0")
     
     if [ "$DEPLOYMENT_STATUS" = "200" ]; then
         echo "✅ Deployment registered in dashboard!"
-        DEPLOYMENT_ID=$(echo $RESPONSE | grep -o '"deployment_id":"[^"]*' | cut -d'"' -f4)
-        echo "📋 Deployment ID: $DEPLOYMENT_ID"
+        DEPLOYMENT_ID=$(echo "$RESPONSE" | grep -o '"deployment_id":"[^"]*' | cut -d'"' -f4)
+        if [ -n "$DEPLOYMENT_ID" ]; then
+            echo "📋 Deployment ID: $DEPLOYMENT_ID"
+        fi
     else
-        echo "⚠️  Warning: Could not register deployment"
-        echo "Response: $RESPONSE"
+        echo "⚠️  Warning: Could not register deployment (Status: $DEPLOYMENT_STATUS)"
         echo "Make sure API_URL is set: export API_URL=http://localhost:8000"
+        echo "API Response: $RESPONSE"
     fi
     
     echo ""
-    echo "🚀 All done! Your app is live!"
+    echo "═════════════════════════════════════════"
+    if [ "$IS_MONOREPO" = true ]; then
+        echo "🚀 Monorepo deployment complete!"
+        echo "📦 Services deployed: ${#SERVICE_NAMES[@]}"
+    else
+        echo "🚀 Deployment complete!"
+    fi
+    echo "═════════════════════════════════════════"
     
 fi
 '''
@@ -344,6 +533,8 @@ async def _generate_monorepo_deployment(app_name: str, analysis: Dict, output_di
     
     service_configs = []
     
+    placeholder_ecr_uri = {}
+    
     for service in services:
         service_name = service.get('name')
         service_path = service.get('path')
@@ -355,6 +546,7 @@ async def _generate_monorepo_deployment(app_name: str, analysis: Dict, output_di
             'tech_stack': service.get('tech_stack', {}),
             'port': service.get('server_config', {}),
             'build_info': service.get('build_system', {}),
+            'server_config': service.get('server_config', {}),
             'package_manager': service.get('build_system', {}).get('package_manager', 'pip'),
             'database': service.get('database', {}),
             'entry_point': service.get('server_config', {}).get('entry_point', 'main.py')
@@ -385,14 +577,14 @@ async def _generate_monorepo_deployment(app_name: str, analysis: Dict, output_di
             
             print(f"✅ Dockerfile for {service_name} saved")
             
+            placeholder_ecr_uri[service_name] = f"{{AWS_ACCOUNT_ID}}.dkr.ecr.{{AWS_REGION}}.amazonaws.com/{app_name} - {service_name}:latest"
+            
         except Exception as e:
             print(f"❌ Failed to generate Dockerfile for {service_name}: {e}")
             raise
     
     print("📝 Generating multi-service CDK infrastructure...")
     
-    placeholder_ecr_uri = f"{{AWS_ACCOUNT_ID}}.dkr.ecr.{{AWS_REGION}}.amazonaws.com/{app_name}:latest"
-
     cdk_files = cdk_generator.generate_monorepo_cdk(
         chat_id=chat_id,
         services=service_configs,
@@ -452,6 +644,7 @@ async def _generate_single_service_deployment(analysis: Dict, output_dir: Path, 
         'tech_stack': primary.get('tech_stack', {}),
         'port': primary.get('server_config', {}),
         'build_info': primary.get('build_system', {}),
+        'server_config': primary.get('server_config', {}),
         'package_manager': primary.get('build_system', {}).get('package_manager', 'pip'),
         'database': primary.get('database', {}),
         'entry_point': primary.get('server_config', {}).get('entry_point', 'main.py')
